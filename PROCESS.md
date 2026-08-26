@@ -108,6 +108,29 @@ checkpoint by checkpoint, each gated on a green `pnpm check` before landing.
    visible knockback displacement, the player survives, and it's back to
    `"return"` and walking home about 1.6s later.
 
+6. **First-encounter callouts, kept deliberately name-only.** The same
+   playtest that drove moments 4–5 also flagged the danger roster (skeleton,
+   crab, ghost, traps, cursed hoard) as unintroduced — a new player has no way
+   to know what they're looking at until it already hurts them, but the
+   no-tutorial rule rules out any actual how-to-play text. The fix
+   (`src/render/callout.ts`) is a floating name-tag — "Skeleton", "Sand Crab",
+   "Ghost Pirate", "Trap!", "Cursed Hoard" — that appears once per kind the
+   first time it enters the player's own sight radius, then fades on its own;
+   it says what the thing is and nothing about what to do about it, so the
+   actual teaching still happens through the enemy's alert/chase animation and
+   the consequence of touching it, not through the label
+   ([`06fa57a`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/06fa57a)).
+   Verified the same debug-hook way as moment 5: a scripted approach that just
+   waited a fixed duration kept either dying (the callout never gets to fade
+   because `update()` freezes on loss) or missing the encounter entirely
+   (patrol wander is randomised, so a fixed-timing script sometimes never
+   brings the player into sight range at all). Polling
+   `window.__debugState()` every 30ms and reacting the instant a callout
+   appeared — retreating immediately rather than guessing when it was safe
+   to — finally confirmed the real behaviour: the label attaches to the live
+   skeleton, fades after ~1.6–1.8s on its own, and the player survives the
+   whole encounter.
+
 ## What still needs a human
 
 - **Real playtesting by someone who hasn't seen the code.** The pass above
