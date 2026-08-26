@@ -17,7 +17,7 @@ import { drawShip, drawShipArrow } from "./src/render/ship.ts";
 import { drawFragments, drawPickups } from "./src/render/pickups.ts";
 import { drawEnemies } from "./src/render/enemies.ts";
 import { drawEndScreen, drawScoreHud } from "./src/render/hud.ts";
-import { drawSightVignette } from "./src/render/vignette.ts";
+import { drawChaseVignette, drawSightVignette } from "./src/render/vignette.ts";
 
 function requireCanvas(): HTMLCanvasElement {
   const el = document.querySelector<HTMLCanvasElement>("#game");
@@ -293,6 +293,9 @@ function render(now: number): void {
     player.y - camera.y,
     sightRadiusForRender,
   );
+  if (visual.chased && status !== "won" && status !== "lost") {
+    drawChaseVignette(ctx, viewport.width, viewport.height, now);
+  }
   if (escaping) {
     const arrow = offscreenArrow({ x: player.x, y: player.y }, layout.shipPos, camera, viewport);
     if (arrow) drawShipArrow(ctx, arrow);
