@@ -13,6 +13,24 @@ const KEY_BINDINGS: Record<string, Vec2> = {
 
 const STICK_RADIUS = 44;
 
+// A fixed screen-space tap target for the sword, distinct from the
+// thumb-anchored joystick --- shared with render/attackButton.ts so the drawn
+// circle and the hit-test always agree.
+export const ATTACK_BUTTON_RADIUS = 34;
+export const ATTACK_BUTTON_MARGIN = 28;
+
+export function attackButtonCenter(viewportWidth: number, viewportHeight: number): Vec2 {
+  return {
+    x: viewportWidth - ATTACK_BUTTON_MARGIN - ATTACK_BUTTON_RADIUS,
+    y: viewportHeight - ATTACK_BUTTON_MARGIN - ATTACK_BUTTON_RADIUS,
+  };
+}
+
+function isInAttackButton(x: number, y: number): boolean {
+  const center = attackButtonCenter(window.innerWidth, window.innerHeight);
+  return Math.hypot(x - center.x, y - center.y) <= ATTACK_BUTTON_RADIUS;
+}
+
 export interface Joystick {
   active: boolean;
   anchor: Vec2;
@@ -29,6 +47,11 @@ export class InputController {
   // without a drag never clears the joystick's own dead zone, so restart
   // needs its own primitive rather than reusing movement.
   private activationPending = false;
+  // Edge-triggered "attack was just requested" --- Space on keyboard, or a
+  // tap on the fixed on-screen sword button on touch, kept separate from
+  // activationPending so a swing during play never gets eaten by restart's
+  // consumeActivation() (which only polls while the run is already over).
+  private attackPending = false;
   readonly joystick: Joystick = { active: false, anchor: { x: 0, y: 0 }, current: { x: 0, y: 0 } };
 
   constructor(private target: HTMLElement) {
@@ -61,6 +84,13 @@ export class InputController {
     this.activationPending = false;
   }
 
+  // Same edge-triggered contract as consumeActivation(), for the sword.
+  consumeAttack(): boolean {
+    if (!this.attackPending) return false;
+    this.attackPending = false;
+    return true;
+  }
+
   private keyboardVector(): Vec2 {
     let x = 0;
     let y = 0;
@@ -90,6 +120,7 @@ export class InputController {
     // Repeat keydowns (OS auto-repeat while held) must not count as fresh
     // presses --- that's exactly the case RESTART_ARM_DELAY guards against.
     if (!event.repeat) this.activationPending = true;
+    if (event.code === "Space" && !event.repeat) this.attackPending = true;
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {
@@ -98,6 +129,13 @@ export class InputController {
 
   private onPointerDown = (event: PointerEvent): void => {
     this.activationPending = true;
+    // A tap on the sword button attacks --- it must not also anchor the
+    // joystick, or the same touch would both swing and start dragging a
+    // stick centred on the button.
+    if (isInAttackButton(event.clientX, event.clientY)) {
+      this.attackPending = true;
+      return;
+    }
     if (this.pointerId !== null) return;
     this.pointerId = event.pointerId;
     this.joystick.active = true;

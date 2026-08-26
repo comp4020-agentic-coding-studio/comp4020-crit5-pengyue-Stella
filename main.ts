@@ -5,8 +5,11 @@ import { createTrail, maybeRecordPoint } from "./src/trail.ts";
 import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS, zoneAt } from "./src/world.ts";
 import { ALERT_PULSE_RADIUS, collectNearby, createPickups } from "./src/pickups.ts";
 import { collectFragments, createFragments } from "./src/fragments.ts";
-import { createEnemies, triggerAlertPulse, updateEnemies } from "./src/enemies.ts";
+import { applySwordHit, createEnemies, triggerAlertPulse, updateEnemies } from "./src/enemies.ts";
 import { checkLoss, collectFragment, computeSightRadius, reachShip, reachX } from "./src/game-logic.ts";
+import { ATTACK_KNOCKBACK_SPEED, createCombatState, isWithinAttackArc, tryAttack } from "./src/combat.ts";
+import { drawSwordSwing } from "./src/render/combat.ts";
+import { drawAttackButton } from "./src/render/attackButton.ts";
 import type { ProgressStatus } from "./src/game-logic.ts";
 import { createObstacles, resolveObstacleCollision } from "./src/obstacles.ts";
 import { createTraps, trapHitCircles, updateTraps } from "./src/traps.ts";
@@ -78,6 +81,7 @@ let pickups = createPickups(layout);
 let fragments = createFragments(layout);
 let enemies = createEnemies(layout);
 let traps = createTraps(layout);
+const combat = createCombatState();
 let score = 0;
 let status: ProgressStatus = "explore";
 let fragmentsCollected = 0;
@@ -207,6 +211,21 @@ function update(now: number, dt: number): void {
   });
   updateTraps(traps, { x: player.x, y: player.y }, dt);
 
+  // A swing hits every live enemy inside the facing-cone at once --- a
+  // one-shot check at the instant the swing starts, not sampled across the
+  // whole visual sweep, so one tap can't double-hit the same target.
+  const attackRequested = input.consumeAttack();
+  const swung = tryAttack(combat, attackRequested, dt);
+  if (swung) {
+    for (const enemy of enemies) {
+      if (enemy.state === "defeated") continue;
+      if (enemy.kind === "ghost" && !playerInCave) continue;
+      if (isWithinAttackArc({ x: player.x, y: player.y }, player.facing, enemy.pos)) {
+        applySwordHit(enemy, { x: player.x, y: player.y }, ATTACK_KNOCKBACK_SPEED);
+      }
+    }
+  }
+
   const currentAlertIds = new Set<string>();
   let startled = false;
   let nearbyChase = false;
@@ -234,7 +253,9 @@ function update(now: number, dt: number): void {
     status,
     player: { pos: { x: player.x, y: player.y }, radius: PLAYER_COLLISION_RADIUS },
     enemies: [
-      ...enemies.map((enemy) => ({ pos: enemy.pos, radius: ENEMY_COLLISION_RADIUS })),
+      ...enemies
+        .filter((enemy) => enemy.state !== "defeated")
+        .map((enemy) => ({ pos: enemy.pos, radius: ENEMY_COLLISION_RADIUS })),
       ...trapHitCircles(traps),
     ],
   });
@@ -275,6 +296,8 @@ function resetGame(): void {
   fragments = createFragments(layout);
   enemies = createEnemies(layout);
   traps = createTraps(layout);
+  combat.cooldown = 0;
+  combat.swingTimer = 0;
 
   score = 0;
   status = "explore";
@@ -303,6 +326,7 @@ function render(now: number): void {
   drawTrail(ctx, trail, { lifeline: escaping, now });
   drawEnemies(ctx, enemies, now, playerInCave);
   drawPirate(ctx, visual);
+  drawSwordSwing(ctx, { x: player.x, y: player.y }, player.facing, combat.swingTimer);
   ctx.restore();
 
   drawSightVignette(
@@ -322,6 +346,9 @@ function render(now: number): void {
   }
   drawScoreHud(ctx, score);
   drawJoystick(ctx, input.joystick);
+  if (status !== "won" && status !== "lost") {
+    drawAttackButton(ctx, viewport.width, viewport.height, combat.cooldown);
+  }
   if (status === "won" || status === "lost") {
     drawEndScreen(ctx, viewport, status === "won", score);
   }

@@ -4,8 +4,11 @@ import type { Vec2 } from "./types.ts";
 import type { WorldLayout } from "./world.ts";
 
 // One shared FSM across all three enemy kinds --- a crab's "buried" rest and
-// a ghost's ambient drift both map onto "patrol".
-export type FsmState = "patrol" | "alert" | "chase" | "return";
+// a ghost's ambient drift both map onto "patrol". "defeated" is a shared
+// fourth-plus state added for combat: a sword hit knocks an enemy down
+// regardless of kind, handled once in updateEnemies rather than duplicated
+// per kind's own switch.
+export type FsmState = "patrol" | "alert" | "chase" | "return" | "defeated";
 
 interface EnemyBase {
   id: string;
@@ -14,6 +17,8 @@ interface EnemyBase {
   stateTimer: number;
   homePos: Vec2;
   facing: 1 | -1;
+  /** current knockback velocity (px/s); decays to {0,0} via friction each frame */
+  knockback: Vec2;
 }
 
 // A discriminated union rather than one flat interface with optional
@@ -80,6 +85,13 @@ const ESCAPE_LEASH_MULT = 1.6;
 const ESCAPE_DETECTION_MULT = 1.4;
 const ESCAPE_SPEED_MULT = 1.15;
 
+// Knocked down, harmless, and briefly out of the fight --- then walks itself
+// home via the existing "return" state rather than staying gone for good, so
+// a sword doesn't permanently clear danger off the map.
+export const DEFEAT_STUN_DURATION = 1.4;
+const KNOCKBACK_FRICTION = 6;
+const KNOCKBACK_REST_THRESHOLD = 5;
+
 let nextId = 0;
 function makeId(kind: string): string {
   nextId += 1;
@@ -98,6 +110,7 @@ export function createEnemies(layout: WorldLayout): Enemy[] {
       state: "patrol",
       stateTimer: 0,
       facing: 1,
+      knockback: { x: 0, y: 0 },
       leash: SKELETON_LEASH,
       detectionRadius: SKELETON_DETECTION_RADIUS,
       wanderTarget: { ...home },
@@ -113,6 +126,7 @@ export function createEnemies(layout: WorldLayout): Enemy[] {
       state: "patrol",
       stateTimer: 0,
       facing: 1,
+      knockback: { x: 0, y: 0 },
       ambushRadius: CRAB_AMBUSH_RADIUS,
       burstTimer: 0,
     });
@@ -127,6 +141,7 @@ export function createEnemies(layout: WorldLayout): Enemy[] {
       state: "patrol",
       stateTimer: 0,
       facing: 1,
+      knockback: { x: 0, y: 0 },
       driftTarget: { ...spot },
     });
   }
@@ -136,24 +151,68 @@ export function createEnemies(layout: WorldLayout): Enemy[] {
 
 export function updateEnemies(enemies: Enemy[], ctx: EnemyUpdateContext): void {
   for (const enemy of enemies) {
-    switch (enemy.kind) {
-      case "skeleton":
-        updateSkeleton(enemy, ctx);
-        break;
-      case "crab":
-        updateSandCrab(enemy, ctx);
-        break;
-      case "ghost":
-        updateGhostPirate(enemy, ctx);
-        break;
-      default:
-        assertNever(enemy);
+    applyKnockback(enemy, ctx.dt);
+
+    if (enemy.state === "defeated") {
+      updateDefeated(enemy, ctx.dt);
+    } else {
+      switch (enemy.kind) {
+        case "skeleton":
+          updateSkeleton(enemy, ctx);
+          break;
+        case "crab":
+          updateSandCrab(enemy, ctx);
+          break;
+        case "ghost":
+          updateGhostPirate(enemy, ctx);
+          break;
+        default:
+          assertNever(enemy);
+      }
     }
+
     if (enemy.kind !== "ghost") {
       const resolved = resolveObstacleCollision(enemy.pos, ENEMY_OBSTACLE_RADIUS, ctx.obstacles);
       enemy.pos.x = resolved.x;
       enemy.pos.y = resolved.y;
     }
+  }
+}
+
+// A sword hit is a state transition like any other, just one that combat.ts
+// (which has no access to Enemy) can't drive itself --- main.ts calls this
+// once per hit after its own arc-detection. Hitting an already-defeated enemy
+// is a no-op so one swing can't restack knockback on something still down.
+export function applySwordHit(enemy: Enemy, sourcePos: Vec2, knockbackSpeed: number): void {
+  if (enemy.state === "defeated") return;
+  const dx = enemy.pos.x - sourcePos.x;
+  const dy = enemy.pos.y - sourcePos.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  enemy.knockback = { x: (dx / dist) * knockbackSpeed, y: (dy / dist) * knockbackSpeed };
+  enemy.state = "defeated";
+  enemy.stateTimer = 0;
+}
+
+function applyKnockback(enemy: EnemyBase, dt: number): void {
+  if (enemy.knockback.x === 0 && enemy.knockback.y === 0) return;
+  enemy.pos.x += enemy.knockback.x * dt;
+  enemy.pos.y += enemy.knockback.y * dt;
+  const decay = Math.max(0, 1 - KNOCKBACK_FRICTION * dt);
+  enemy.knockback.x *= decay;
+  enemy.knockback.y *= decay;
+  if (Math.hypot(enemy.knockback.x, enemy.knockback.y) < KNOCKBACK_REST_THRESHOLD) {
+    enemy.knockback.x = 0;
+    enemy.knockback.y = 0;
+  }
+}
+
+// No behaviour while down --- just a timer before it picks itself up and
+// walks home via the FSM's existing "return" state.
+function updateDefeated(enemy: EnemyBase, dt: number): void {
+  enemy.stateTimer += dt;
+  if (enemy.stateTimer >= DEFEAT_STUN_DURATION) {
+    enemy.state = "return";
+    enemy.stateTimer = 0;
   }
 }
 

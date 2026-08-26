@@ -20,6 +20,17 @@ export function drawEnemies(
 }
 
 function drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy, now: number, playerInCave: boolean): void {
+  const defeated = enemy.state === "defeated";
+  if (defeated) {
+    // Tip the whole sprite over around its own position, faded --- a sword
+    // hit needs to read as "down", not just "still standing there".
+    ctx.save();
+    ctx.translate(enemy.pos.x, enemy.pos.y);
+    ctx.rotate((enemy.facing * Math.PI) / 2.1);
+    ctx.translate(-enemy.pos.x, -enemy.pos.y);
+    ctx.globalAlpha = 0.55;
+  }
+
   switch (enemy.kind) {
     case "skeleton":
       drawSkeleton(ctx, enemy);
@@ -33,6 +44,8 @@ function drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy, now: number, pla
       if (playerInCave) drawGhost(ctx, enemy, now);
       break;
   }
+
+  if (defeated) ctx.restore();
 
   if (enemy.state === "alert") {
     drawAlertTell(ctx, enemy, now);
