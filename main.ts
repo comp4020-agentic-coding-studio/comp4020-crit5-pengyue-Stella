@@ -4,16 +4,17 @@ import { advanceReveal, createMap, revealAround, worldSize } from "./src/map.ts"
 import { createTrail, maybeRecordPoint } from "./src/trail.ts";
 import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS, zoneAt } from "./src/world.ts";
 import { ALERT_PULSE_RADIUS, collectNearby, createPickups } from "./src/pickups.ts";
+import { collectFragments, createFragments } from "./src/fragments.ts";
 import { createEnemies, triggerAlertPulse, updateEnemies } from "./src/enemies.ts";
-import { checkLoss, computeSightRadius } from "./src/game-logic.ts";
+import { checkLoss, collectFragment, computeSightRadius, reachShip, reachX } from "./src/game-logic.ts";
 import type { ProgressStatus } from "./src/game-logic.ts";
-import { drawMap } from "./src/render/map.ts";
+import { drawMap, drawXMarker } from "./src/render/map.ts";
 import { drawTrail } from "./src/render/trail.ts";
 import { drawPirate, ALERT_BEAT_DURATION, PICKUP_PULSE_DURATION } from "./src/render/player.ts";
 import type { PlayerVisualState } from "./src/render/player.ts";
 import { drawJoystick } from "./src/render/joystick.ts";
 import { drawShip } from "./src/render/ship.ts";
-import { drawPickups } from "./src/render/pickups.ts";
+import { drawFragments, drawPickups } from "./src/render/pickups.ts";
 import { drawEnemies } from "./src/render/enemies.ts";
 import { drawScoreHud } from "./src/render/hud.ts";
 import { drawSightVignette } from "./src/render/vignette.ts";
@@ -40,6 +41,8 @@ const HAT_LAG_SMOOTHING = 10;
 const PLAYER_COLLISION_RADIUS = 10;
 const ENEMY_COLLISION_RADIUS = 12;
 const ALERT_NOTICE_RADIUS = 220;
+const X_REACH_RADIUS = 30;
+const SHIP_REACH_RADIUS = 60;
 
 const layout = buildWorldLayout();
 const map = createMap(WORLD_COLS, WORLD_ROWS, WORLD_CELL_SIZE, layout);
@@ -67,9 +70,12 @@ const visual: PlayerVisualState = {
 const trail = createTrail(player.x, player.y);
 const input = new InputController(canvas);
 const pickups = createPickups(layout);
+const fragments = createFragments(layout);
 const enemies = createEnemies(layout);
 let score = 0;
 let status: ProgressStatus = "explore";
+let fragmentsCollected = 0;
+let xRevealedAt = 0;
 let previousAlertIds = new Set<string>();
 let playerInCave = false;
 let sightRadiusForRender = SIGHT_RADIUS;
@@ -148,6 +154,22 @@ function update(now: number, dt: number): void {
     triggerAlertPulse(enemies, layout.cursedTreasurePos, ALERT_PULSE_RADIUS);
   }
 
+  const newFragments = collectFragments(fragments, { x: player.x, y: player.y });
+  for (let i = 0; i < newFragments; i++) {
+    const result = collectFragment(status, fragmentsCollected);
+    fragmentsCollected = result.fragmentsCollected;
+    if (result.status !== status) xRevealedAt = now;
+    status = result.status;
+    visual.pickupPulse = PICKUP_PULSE_DURATION;
+  }
+
+  if (status === "xRevealed" && distanceTo(layout.xPos) <= X_REACH_RADIUS) {
+    status = reachX(status, fragmentsCollected);
+  }
+  if (status === "escaping" && distanceTo(layout.shipPos) <= SHIP_REACH_RADIUS) {
+    status = reachShip(status);
+  }
+
   updateEnemies(enemies, {
     playerPos: { x: player.x, y: player.y },
     playerSightRadius: sightRadius,
@@ -192,7 +214,9 @@ function render(now: number): void {
   ctx.translate(-camera.x, -camera.y);
   drawMap(ctx, map, now, camera.x, camera.y, viewport.width, viewport.height);
   drawShip(ctx, layout.shipPos, { beacon: false, now });
+  drawFragments(ctx, fragments, now);
   drawPickups(ctx, pickups, now);
+  if (status !== "explore") drawXMarker(ctx, layout.xPos, now, xRevealedAt);
   drawTrail(ctx, trail);
   drawEnemies(ctx, enemies, now, playerInCave);
   drawPirate(ctx, visual);
@@ -212,6 +236,10 @@ function render(now: number): void {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function distanceTo(target: { x: number; y: number }): number {
+  return Math.hypot(player.x - target.x, player.y - target.y);
 }
 
 requestAnimationFrame(frame);

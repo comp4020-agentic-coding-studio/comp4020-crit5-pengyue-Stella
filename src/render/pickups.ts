@@ -1,3 +1,4 @@
+import type { Fragment } from "../fragments.ts";
 import type { Pickup } from "../pickups.ts";
 
 const RADIUS = 9;
@@ -11,6 +12,13 @@ export function drawPickups(ctx: CanvasRenderingContext2D, pickups: Pickup[], no
   for (const pickup of pickups) {
     if (pickup.collected) continue;
     drawIcon(ctx, pickup.kind, pickup.pos.x, pickup.pos.y, now);
+  }
+}
+
+export function drawFragments(ctx: CanvasRenderingContext2D, fragments: Fragment[], now: number): void {
+  for (const fragment of fragments) {
+    if (fragment.collected) continue;
+    drawIcon(ctx, "fragment", fragment.pos.x, fragment.pos.y, now);
   }
 }
 

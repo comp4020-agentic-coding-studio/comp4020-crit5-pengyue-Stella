@@ -1,5 +1,7 @@
 import { type Cell, type GameMap, SKETCH_PHASE_END, revealProgress } from "../map.ts";
+import type { Vec2 } from "../types.ts";
 import type { Zone } from "../world.ts";
+import { drawIcon } from "./pickups.ts";
 
 const PARCHMENT = "#e8d9b5";
 
@@ -51,6 +53,31 @@ export function drawMap(
       drawCell(ctx, cell, col * cellSize, row * cellSize, cellSize, t);
     }
   }
+}
+
+const X_POP_DURATION = 500;
+
+// Tied to map/progression state (when the X was revealed), not an entity
+// list --- that's why it lives here rather than in render/pickups.ts, even
+// though it draws through that module's shared icon helper. Eases past 1
+// then settles, so the reveal reads as a definite "pop" rather than a fade.
+export function drawXMarker(ctx: CanvasRenderingContext2D, pos: Vec2, now: number, revealedAt: number): void {
+  const elapsed = Math.max(0, now - revealedAt);
+  const t = Math.min(1, elapsed / X_POP_DURATION);
+  const scale = t >= 1 ? 1 : overshootEase(t);
+
+  ctx.save();
+  ctx.translate(pos.x, pos.y);
+  ctx.scale(scale, scale);
+  ctx.translate(-pos.x, -pos.y);
+  drawIcon(ctx, "x", pos.x, pos.y, now);
+  ctx.restore();
+}
+
+function overshootEase(t: number): number {
+  const c = 1.7;
+  const tm1 = t - 1;
+  return 1 + (c + 1) * tm1 ** 3 + c * tm1 ** 2;
 }
 
 // Cave cells are shaded toward black on top of their terrain colour, so the
