@@ -57,24 +57,40 @@ checkpoint by checkpoint, each gated on a green `pnpm check` before landing.
    the actual layout it runs against.
    [`e52a999`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/e52a999)
 
+4. **A real first playtest surfaced bugs code review never would have.**
+   Playwright became available, so I actually opened the deployed-shape dev
+   build in a browser at both marked viewports and played it, instead of
+   reasoning about coordinates on paper. That surfaced three real problems
+   the whole `pnpm check`-green history above had missed: restart never
+   armed on either keyboard or touch, because the lose-screen listener was
+   never actually wired to a reset call
+   ([`be2321f`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/be2321f));
+   the world had no collision at all, so "trees" and "rocks" were paint
+   with nothing behind them, and treasure was scattered evenly instead of
+   clustered around anything worth finding
+   ([`36b44ad`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/36b44ad));
+   and, worst, the terrain still visibly read as a printed grid of stamped
+   icons even after that same commit's message claimed it was fixed —
+   caught only by screenshotting rendered pixels and looking at them, not by
+   trusting my own commit description. Fixing it for real took thinning
+   glyph density per terrain kind and jittering both glyph and colour-blob
+   placement per cell, alongside a new ground-trap FSM and denser,
+   overlapping enemy coverage in jungle/ruins/cave
+   ([`7ac7511`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/7ac7511)).
+   The lesson: a passing check roster and a confident commit message are
+   claims, not proof — looking at the actual rendered page is a different
+   and necessary kind of verification.
+
 ## What still needs a human
 
-Two things I deliberately did not fake:
-
-- **Real browser verification.** `agent-browser` and headless-browser
-  tooling (chromium/playwright/puppeteer) were unavailable in this
-  environment for the whole build. Every checkpoint was verified with
-  `pnpm check` (typecheck, build, lint, tests) plus close reading of the
-  render code and the actual world coordinates — not by looking at the
-  rendered page. The game has never actually been seen running. Before this
-  ships, someone needs to open it in a real browser at both 1920×1080 and
-  390×844, play a full loop, and confirm the things code review can't: does
-  it actually feel readable, does the joystick behave under a real touch
-  drag, does anything overlap or clip that the math says shouldn't.
-- **Real playtesting.** PLAN.md asks for "someone who hasn't seen the code."
-  The checkpoint-11 pass above is a self-playtest via code tracing, which
-  found one real balance issue, but it is not a substitute for a first-time
-  player's reaction — particularly to difficulty (is the skeleton's leash
-  fair, is the cave dark enough to be tense without being frustrating) and to
-  the discoverability claims in `PLAN.md` (is the jungle-boundary skeleton
-  actually noticed before it's dangerous).
+- **Real playtesting by someone who hasn't seen the code.** The pass above
+  is real browser verification (Playwright, both marked viewports, actual
+  screenshots, actual bugs found and fixed), which is a genuine step up from
+  the checkpoint-11 self-playtest-by-code-tracing this file used to describe
+  here. But it's still me driving the browser, primed by having written every
+  system. It is not a substitute for a first-time player's reaction —
+  particularly to difficulty (is the skeleton's leash fair, is the cave dark
+  enough to be tense without being frustrating) and to the discoverability
+  claims in `PLAN.md` (is the jungle-boundary skeleton actually noticed
+  before it's dangerous, is a trap's anticipation tell readable in the
+  moment rather than only in slow-motion screenshot review).
