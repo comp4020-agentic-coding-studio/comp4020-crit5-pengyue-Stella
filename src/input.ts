@@ -87,6 +87,9 @@ export class InputController {
 
   private onKeyDown = (event: KeyboardEvent): void => {
     this.pressed.add(event.code);
+    // Repeat keydowns (OS auto-repeat while held) must not count as fresh
+    // presses --- that's exactly the case RESTART_ARM_DELAY guards against.
+    if (!event.repeat) this.activationPending = true;
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {
@@ -94,6 +97,7 @@ export class InputController {
   };
 
   private onPointerDown = (event: PointerEvent): void => {
+    this.activationPending = true;
     if (this.pointerId !== null) return;
     this.pointerId = event.pointerId;
     this.joystick.active = true;
