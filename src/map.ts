@@ -1,12 +1,20 @@
 import type { Size } from "./types.ts";
+import { type WorldLayout, type Zone, zoneAt } from "./world.ts";
 
-// Zones (beach/jungle/ruins/cave) are a later checkpoint; for now every cell
-// carries one of these scattered doodles so the sketch-then-wash reveal has
-// something worth drawing.
-export type Terrain = "sand" | "tuft" | "rock" | "driftwood" | "treeClump";
+export type Terrain =
+  | "sand"
+  | "tuft"
+  | "rock"
+  | "driftwood"
+  | "treeClump"
+  | "bones"
+  | "mound"
+  | "rubble"
+  | "mist";
 
 export interface Cell {
   terrain: Terrain;
+  zone: Zone;
   /** performance.now() timestamp the reveal animation started, or null while hidden */
   revealStart: number | null;
   /** true once the reveal animation has finished --- cells never re-hide */
@@ -27,12 +35,21 @@ export const REVEAL_DURATION_MS = 650;
 // animation; the rest is the colour wash filling in underneath it.
 export const SKETCH_PHASE_END = 0.4;
 
-export function createMap(cols: number, rows: number, cellSize: number): GameMap {
+const BONE_RADIUS = 160;
+const MOUND_RADIUS = 120;
+
+export function createMap(cols: number, rows: number, cellSize: number, layout: WorldLayout): GameMap {
   const cells: Cell[] = [];
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
+      const cx = col * cellSize + cellSize / 2;
+      const cy = row * cellSize + cellSize / 2;
+      const zone = zoneAt(layout, cx, cy);
+      const nearSkeletonHome = layout.skeletonHomes.some((p) => withinRadius(p.x, p.y, cx, cy, BONE_RADIUS));
+      const nearCrabAmbush = layout.crabAmbushPoints.some((p) => withinRadius(p.x, p.y, cx, cy, MOUND_RADIUS));
       cells.push({
-        terrain: pickTerrain(),
+        terrain: pickTerrain(zone, nearSkeletonHome, nearCrabAmbush),
+        zone,
         revealStart: null,
         revealed: false,
         seed: Math.random(),
@@ -42,13 +59,38 @@ export function createMap(cols: number, rows: number, cellSize: number): GameMap
   return { cols, rows, cellSize, cells };
 }
 
-function pickTerrain(): Terrain {
+function withinRadius(ax: number, ay: number, bx: number, by: number, radius: number): boolean {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+function pickTerrain(zone: Zone, nearSkeletonHome: boolean, nearCrabAmbush: boolean): Terrain {
   const roll = Math.random();
-  if (roll < 0.55) return "sand";
-  if (roll < 0.7) return "tuft";
-  if (roll < 0.82) return "rock";
-  if (roll < 0.92) return "driftwood";
-  return "treeClump";
+  if (nearSkeletonHome && roll < 0.35) return "bones";
+  if (nearCrabAmbush && roll < 0.3) return "mound";
+
+  switch (zone) {
+    case "beach":
+      if (roll < 0.6) return "sand";
+      if (roll < 0.78) return "driftwood";
+      if (roll < 0.92) return "tuft";
+      return "rock";
+    case "jungle":
+      if (roll < 0.5) return "treeClump";
+      if (roll < 0.75) return "tuft";
+      if (roll < 0.9) return "sand";
+      return "rock";
+    case "ruins":
+      if (roll < 0.5) return "rubble";
+      if (roll < 0.75) return "rock";
+      if (roll < 0.9) return "sand";
+      return "tuft";
+    case "cave":
+      if (roll < 0.55) return "mist";
+      if (roll < 0.8) return "rock";
+      return "rubble";
+  }
 }
 
 export function worldSize(map: GameMap): Size {

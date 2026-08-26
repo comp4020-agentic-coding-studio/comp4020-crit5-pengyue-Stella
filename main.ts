@@ -2,11 +2,13 @@ import { InputController } from "./src/input.ts";
 import { updateCamera } from "./src/camera.ts";
 import { advanceReveal, createMap, revealAround, worldSize } from "./src/map.ts";
 import { createTrail, maybeRecordPoint } from "./src/trail.ts";
+import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS } from "./src/world.ts";
 import { drawMap } from "./src/render/map.ts";
 import { drawTrail } from "./src/render/trail.ts";
 import { drawPirate } from "./src/render/player.ts";
 import type { PlayerVisualState } from "./src/render/player.ts";
 import { drawJoystick } from "./src/render/joystick.ts";
+import { drawShip } from "./src/render/ship.ts";
 
 function requireCanvas(): HTMLCanvasElement {
   const el = document.querySelector<HTMLCanvasElement>("#game");
@@ -23,18 +25,18 @@ function requireContext(el: HTMLCanvasElement): CanvasRenderingContext2D {
 const canvas = requireCanvas();
 const ctx = requireContext(canvas);
 
-const CELL_SIZE = 32;
 const SIGHT_RADIUS = 170;
 const PLAYER_SPEED = 190;
 const HAT_LAG_DISTANCE = 5;
 const HAT_LAG_SMOOTHING = 10;
 
-const map = createMap(80, 60, CELL_SIZE);
+const layout = buildWorldLayout();
+const map = createMap(WORLD_COLS, WORLD_ROWS, WORLD_CELL_SIZE, layout);
 const world = worldSize(map);
 
 const player = {
-  x: world.width / 2,
-  y: world.height - 140,
+  x: layout.shipPos.x,
+  y: layout.shipPos.y,
   facing: 1 as 1 | -1,
 };
 
@@ -106,6 +108,7 @@ function render(now: number): void {
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
   drawMap(ctx, map, now, camera.x, camera.y, viewport.width, viewport.height);
+  drawShip(ctx, layout.shipPos, { beacon: false, now });
   drawTrail(ctx, trail);
   drawPirate(ctx, visual);
   ctx.restore();
