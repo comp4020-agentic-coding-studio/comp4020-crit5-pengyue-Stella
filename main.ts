@@ -1,5 +1,5 @@
 import { InputController } from "./src/input.ts";
-import { updateCamera } from "./src/camera.ts";
+import { offscreenArrow, updateCamera } from "./src/camera.ts";
 import { advanceReveal, createMap, revealAround, worldSize } from "./src/map.ts";
 import { createTrail, maybeRecordPoint } from "./src/trail.ts";
 import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS, zoneAt } from "./src/world.ts";
@@ -13,7 +13,7 @@ import { drawTrail } from "./src/render/trail.ts";
 import { drawPirate, ALERT_BEAT_DURATION, PICKUP_PULSE_DURATION } from "./src/render/player.ts";
 import type { PlayerVisualState } from "./src/render/player.ts";
 import { drawJoystick } from "./src/render/joystick.ts";
-import { drawShip } from "./src/render/ship.ts";
+import { drawShip, drawShipArrow } from "./src/render/ship.ts";
 import { drawFragments, drawPickups } from "./src/render/pickups.ts";
 import { drawEnemies } from "./src/render/enemies.ts";
 import { drawScoreHud } from "./src/render/hud.ts";
@@ -209,15 +209,16 @@ function update(now: number, dt: number): void {
 function render(now: number): void {
   const viewport = { width: window.innerWidth, height: window.innerHeight };
   const camera = updateCamera({ x: player.x, y: player.y }, viewport, world);
+  const escaping = status === "escaping";
 
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
   drawMap(ctx, map, now, camera.x, camera.y, viewport.width, viewport.height);
-  drawShip(ctx, layout.shipPos, { beacon: false, now });
+  drawShip(ctx, layout.shipPos, { beacon: escaping, now });
   drawFragments(ctx, fragments, now);
   drawPickups(ctx, pickups, now);
   if (status !== "explore") drawXMarker(ctx, layout.xPos, now, xRevealedAt);
-  drawTrail(ctx, trail);
+  drawTrail(ctx, trail, { lifeline: escaping, now });
   drawEnemies(ctx, enemies, now, playerInCave);
   drawPirate(ctx, visual);
   ctx.restore();
@@ -230,6 +231,10 @@ function render(now: number): void {
     player.y - camera.y,
     sightRadiusForRender,
   );
+  if (escaping) {
+    const arrow = offscreenArrow({ x: player.x, y: player.y }, layout.shipPos, camera, viewport);
+    if (arrow) drawShipArrow(ctx, arrow);
+  }
   drawScoreHud(ctx, score);
   drawJoystick(ctx, input.joystick);
 }

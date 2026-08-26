@@ -1,3 +1,4 @@
+import type { ScreenArrow } from "../camera.ts";
 import type { Vec2 } from "../types.ts";
 
 export interface ShipRenderOptions {
@@ -56,5 +57,25 @@ export function drawShip(ctx: CanvasRenderingContext2D, pos: Vec2, opts: ShipRen
   ctx.lineWidth = 1;
   ctx.stroke();
 
+  ctx.restore();
+}
+
+// Screen-space, drawn after ctx.restore() like the HUD --- points at the ship
+// whenever camera.ts's offscreenArrow says it isn't currently on screen, so
+// it "reads on screen from anywhere on the map" during the escape climax.
+export function drawShipArrow(ctx: CanvasRenderingContext2D, arrow: ScreenArrow): void {
+  ctx.save();
+  ctx.translate(arrow.x, arrow.y);
+  ctx.rotate(arrow.angle);
+  ctx.fillStyle = "#f2c94c";
+  ctx.strokeStyle = "#7a5c12";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(14, 0);
+  ctx.lineTo(-8, -8);
+  ctx.lineTo(-8, 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
   ctx.restore();
 }
