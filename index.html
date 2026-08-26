@@ -2,18 +2,13 @@
 <html lang="en-AU">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>COMP4020 prototype</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>X Marks the Spot</title>
     <meta
       name="description"
-      content="Replace this with one sentence saying what this page is. A search result and a link preview both show it."
+      content="A chibi pirate explores a hand-drawn treasure map that reveals itself as you walk it."
     />
 
-    <!--
-      The link-preview card: public/card.png, 1200x630 --- replace it. The URL
-      resolves against this page, like any link. No og:title/og:description:
-      scrapers fall back to the <title> and description above.
-    -->
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./card.png" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -22,17 +17,12 @@
   </head>
   <body>
     <header>
-      <nav aria-label="Primary">
-        <a href="./">Home</a>
+      <nav aria-label="Primary" class="visually-hidden">
+        <a href="./">X Marks the Spot</a>
       </nav>
+      <h1 class="visually-hidden">X Marks the Spot</h1>
     </header>
-    <main>
-      <h1>COMP4020 prototype</h1>
-      <p>
-        Replace this with your prototype. This week's brief is on the course website;
-        <code>spec/README.md</code> explains how the checks in this repo relate to it.
-      </p>
-    </main>
+    <canvas id="game" aria-label="A treasure map that reveals as a pirate explores it"></canvas>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
