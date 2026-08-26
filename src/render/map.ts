@@ -1,4 +1,4 @@
-import { type Cell, type GameMap, SKETCH_PHASE_END, revealProgress } from "../map.ts";
+import { cellAt, type Cell, type GameMap, SKETCH_PHASE_END, revealProgress } from "../map.ts";
 import type { Vec2 } from "../types.ts";
 import type { Zone } from "../world.ts";
 import { drawIcon } from "./pickups.ts";
@@ -50,7 +50,7 @@ export function drawMap(
       if (!cell) continue;
       const t = revealProgress(cell, now);
       if (t <= 0) continue;
-      drawCell(ctx, cell, col * cellSize, row * cellSize, cellSize, t);
+      drawCell(ctx, map, cell, col, row, col * cellSize, row * cellSize, cellSize, t);
     }
   }
 }
@@ -91,7 +91,17 @@ function shadeForZone(hex: string, zone: Zone): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, x: number, y: number, size: number, t: number): void {
+function drawCell(
+  ctx: CanvasRenderingContext2D,
+  map: GameMap,
+  cell: Cell,
+  col: number,
+  row: number,
+  x: number,
+  y: number,
+  size: number,
+  t: number,
+): void {
   const ink = INK_FOR_ZONE[cell.zone];
 
   if (t <= SKETCH_PHASE_END) {
@@ -104,11 +114,17 @@ function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, x: number, y: numbe
     return;
   }
 
+  // Blending each cell's colour with its neighbours', and painting an
+  // oversized irregular blob instead of an axis-aligned rect, is what turns
+  // a grid of flat-coloured tiles into something reading as continuous
+  // painted terrain --- the two together, not either alone.
   const washAlpha = (t - SKETCH_PHASE_END) / (1 - SKETCH_PHASE_END);
+  const blended = blendedTerrainColor(map, col, row);
   ctx.save();
   ctx.globalAlpha = washAlpha;
-  ctx.fillStyle = shadeForZone(TERRAIN_COLOR[cell.terrain], cell.zone);
-  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = shadeForZone(blended, cell.zone);
+  drawTerrainBlob(ctx, x + size / 2, y + size / 2, size, cell.seed);
+  ctx.fill();
   ctx.restore();
 
   ctx.save();
@@ -116,6 +132,70 @@ function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, x: number, y: numbe
   ctx.lineWidth = 1.2;
   drawTerrainGlyph(ctx, cell, x, y, size, true);
   ctx.restore();
+}
+
+const NEIGHBOR_OFFSETS: Array<[number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
+
+function hexToRgb(hex: string): [number, number, number] {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const channel = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  return `#${channel(r)}${channel(g)}${channel(b)}`;
+}
+
+// Own cell outweighs any single neighbour, so terrain kinds stay
+// recognisable up close while the boundary between patches still softens.
+function blendedTerrainColor(map: GameMap, col: number, row: number): string {
+  const own = cellAt(map, col, row);
+  if (!own) return PARCHMENT;
+  const [ownR, ownG, ownB] = hexToRgb(TERRAIN_COLOR[own.terrain]);
+  let r = ownR * 3;
+  let g = ownG * 3;
+  let b = ownB * 3;
+  let weight = 3;
+  for (const [dc, dr] of NEIGHBOR_OFFSETS) {
+    const neighbor = cellAt(map, col + dc, row + dr);
+    if (!neighbor) continue;
+    const [nr, ng, nb] = hexToRgb(TERRAIN_COLOR[neighbor.terrain]);
+    r += nr;
+    g += ng;
+    b += nb;
+    weight += 1;
+  }
+  return rgbToHex(r / weight, g / weight, b / weight);
+}
+
+// Cheap deterministic hash for shape wobble --- stable per (seed, i) so a
+// cell's blob doesn't reshape itself from frame to frame.
+function pseudoRandom(seed: number, i: number): number {
+  const x = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+// Deliberately oversized relative to the cell --- neighbouring blobs overlap
+// a little, which is what removes the hard seams a fillRect grid always has.
+function drawTerrainBlob(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, seed: number): void {
+  const points = 7;
+  const baseRadius = size * 0.64;
+  ctx.beginPath();
+  for (let i = 0; i <= points; i++) {
+    const angle = (i / points) * Math.PI * 2;
+    const wobble = 0.82 + 0.3 * pseudoRandom(seed, i);
+    const radius = baseRadius * wobble;
+    const px = cx + Math.cos(angle) * radius;
+    const py = cy + Math.sin(angle) * radius;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
 }
 
 function drawTerrainGlyph(

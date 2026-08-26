@@ -8,7 +8,9 @@ import { collectFragments, createFragments } from "./src/fragments.ts";
 import { createEnemies, triggerAlertPulse, updateEnemies } from "./src/enemies.ts";
 import { checkLoss, collectFragment, computeSightRadius, reachShip, reachX } from "./src/game-logic.ts";
 import type { ProgressStatus } from "./src/game-logic.ts";
+import { createObstacles, resolveObstacleCollision } from "./src/obstacles.ts";
 import { drawMap, drawXMarker } from "./src/render/map.ts";
+import { drawObstacles } from "./src/render/obstacles.ts";
 import { drawTrail } from "./src/render/trail.ts";
 import { drawPirate, ALERT_BEAT_DURATION, PICKUP_PULSE_DURATION } from "./src/render/player.ts";
 import type { PlayerVisualState } from "./src/render/player.ts";
@@ -47,6 +49,7 @@ const SHIP_REACH_RADIUS = 60;
 const layout = buildWorldLayout();
 const map = createMap(WORLD_COLS, WORLD_ROWS, WORLD_CELL_SIZE, layout);
 const world = worldSize(map);
+const obstacles = createObstacles(layout);
 
 const player = {
   x: layout.shipPos.x,
@@ -135,6 +138,10 @@ function update(now: number, dt: number): void {
     if (move.x !== 0) player.facing = move.x > 0 ? 1 : -1;
   }
 
+  const resolved = resolveObstacleCollision({ x: player.x, y: player.y }, PLAYER_COLLISION_RADIUS, obstacles);
+  player.x = resolved.x;
+  player.y = resolved.y;
+
   visual.pos.x = player.x;
   visual.pos.y = player.y;
   visual.facing = player.facing;
@@ -192,6 +199,7 @@ function update(now: number, dt: number): void {
     playerSightRadius: sightRadius,
     playerInCave,
     escapeBoost: status === "escaping",
+    obstacles,
     dt,
   });
 
@@ -276,6 +284,7 @@ function render(now: number): void {
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
   drawMap(ctx, map, now, camera.x, camera.y, viewport.width, viewport.height);
+  drawObstacles(ctx, obstacles, map, now);
   drawShip(ctx, layout.shipPos, { beacon: escaping, now });
   drawFragments(ctx, fragments, now);
   drawPickups(ctx, pickups, now);

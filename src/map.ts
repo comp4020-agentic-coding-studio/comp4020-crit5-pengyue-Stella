@@ -38,8 +38,14 @@ export const SKETCH_PHASE_END = 0.4;
 const BONE_RADIUS = 160;
 const MOUND_RADIUS = 120;
 
+// Roughly this many cells wide per terrain patch --- a coherent noise field
+// carves a zone into a few contiguous groves/reefs/rubble-fields instead of
+// scattering independent per-cell rolls into a checkerboard.
+const NOISE_SCALE = 4.5;
+
 export function createMap(cols: number, rows: number, cellSize: number, layout: WorldLayout): GameMap {
   const cells: Cell[] = [];
+  const noiseSeed = Math.random() * 1000;
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const cx = col * cellSize + cellSize / 2;
@@ -47,8 +53,9 @@ export function createMap(cols: number, rows: number, cellSize: number, layout: 
       const zone = zoneAt(layout, cx, cy);
       const nearSkeletonHome = layout.skeletonHomes.some((p) => withinRadius(p.x, p.y, cx, cy, BONE_RADIUS));
       const nearCrabAmbush = layout.crabAmbushPoints.some((p) => withinRadius(p.x, p.y, cx, cy, MOUND_RADIUS));
+      const density = valueNoise(col / NOISE_SCALE, row / NOISE_SCALE, noiseSeed);
       cells.push({
-        terrain: pickTerrain(zone, nearSkeletonHome, nearCrabAmbush),
+        terrain: pickTerrain(zone, density, nearSkeletonHome, nearCrabAmbush),
         zone,
         revealStart: null,
         revealed: false,
@@ -65,30 +72,61 @@ function withinRadius(ax: number, ay: number, bx: number, by: number, radius: nu
   return dx * dx + dy * dy <= radius * radius;
 }
 
-function pickTerrain(zone: Zone, nearSkeletonHome: boolean, nearCrabAmbush: boolean): Terrain {
-  const roll = Math.random();
-  if (nearSkeletonHome && roll < 0.35) return "bones";
-  if (nearCrabAmbush && roll < 0.3) return "mound";
+// Deterministic 2D value noise (bilinear-interpolated hashed lattice) ---
+// spatially coherent terrain needs neighbouring cells to land on similar
+// values, which independent per-cell Math.random() rolls can never give.
+function hashLattice(ix: number, iy: number, seed: number): number {
+  let h = ix * 374761393 + iy * 668265263 + seed * 2246822519;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+function smoothstep(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+function valueNoise(x: number, y: number, seed: number): number {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const sx = smoothstep(x - x0);
+  const sy = smoothstep(y - y0);
+  const n00 = hashLattice(x0, y0, seed);
+  const n10 = hashLattice(x0 + 1, y0, seed);
+  const n01 = hashLattice(x0, y0 + 1, seed);
+  const n11 = hashLattice(x0 + 1, y0 + 1, seed);
+  const top = n00 + (n10 - n00) * sx;
+  const bottom = n01 + (n11 - n01) * sx;
+  return top + (bottom - top) * sy;
+}
+
+// `density` is spatially smooth, so these thresholds carve the same noise
+// field into contiguous patches per zone instead of scattering independent
+// single-cell rolls --- that's what turns "grid of tile types" into "a few
+// big terrain patches" (groves, reefs, rubble fields).
+function pickTerrain(zone: Zone, density: number, nearSkeletonHome: boolean, nearCrabAmbush: boolean): Terrain {
+  if (nearSkeletonHome && density < 0.35) return "bones";
+  if (nearCrabAmbush && density < 0.3) return "mound";
 
   switch (zone) {
     case "beach":
-      if (roll < 0.6) return "sand";
-      if (roll < 0.78) return "driftwood";
-      if (roll < 0.92) return "tuft";
+      if (density < 0.6) return "sand";
+      if (density < 0.78) return "driftwood";
+      if (density < 0.92) return "tuft";
       return "rock";
     case "jungle":
-      if (roll < 0.5) return "treeClump";
-      if (roll < 0.75) return "tuft";
-      if (roll < 0.9) return "sand";
+      if (density < 0.5) return "treeClump";
+      if (density < 0.75) return "tuft";
+      if (density < 0.9) return "sand";
       return "rock";
     case "ruins":
-      if (roll < 0.5) return "rubble";
-      if (roll < 0.75) return "rock";
-      if (roll < 0.9) return "sand";
+      if (density < 0.5) return "rubble";
+      if (density < 0.75) return "rock";
+      if (density < 0.9) return "sand";
       return "tuft";
     case "cave":
-      if (roll < 0.55) return "mist";
-      if (roll < 0.8) return "rock";
+      if (density < 0.55) return "mist";
+      if (density < 0.8) return "rock";
       return "rubble";
   }
 }

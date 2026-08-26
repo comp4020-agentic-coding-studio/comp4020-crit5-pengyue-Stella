@@ -1,3 +1,5 @@
+import type { Obstacle } from "./obstacles.ts";
+import { resolveObstacleCollision } from "./obstacles.ts";
 import type { Vec2 } from "./types.ts";
 import type { WorldLayout } from "./world.ts";
 
@@ -42,8 +44,12 @@ export interface EnemyUpdateContext {
   playerSightRadius: number;
   playerInCave: boolean;
   escapeBoost: boolean;
+  obstacles: Obstacle[];
   dt: number;
 }
+
+// Ghosts are incorporeal --- only skeleton/crab get pushed out of obstacles.
+const ENEMY_OBSTACLE_RADIUS = 12;
 
 const SKELETON_LEASH = 220;
 const SKELETON_DETECTION_RADIUS = 150;
@@ -139,6 +145,11 @@ export function updateEnemies(enemies: Enemy[], ctx: EnemyUpdateContext): void {
         break;
       default:
         assertNever(enemy);
+    }
+    if (enemy.kind !== "ghost") {
+      const resolved = resolveObstacleCollision(enemy.pos, ENEMY_OBSTACLE_RADIUS, ctx.obstacles);
+      enemy.pos.x = resolved.x;
+      enemy.pos.y = resolved.y;
     }
   }
 }
