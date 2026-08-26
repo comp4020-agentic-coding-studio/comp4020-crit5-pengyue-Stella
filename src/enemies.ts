@@ -55,6 +55,17 @@ const SKELETON_WANDER_ARRIVE_DIST = 8;
 const SKELETON_WANDER_PAUSE = 1.2;
 
 const CRAB_AMBUSH_RADIUS = 70;
+export const CRAB_TELEGRAPH_DURATION = 0.4;
+const CRAB_BURST_SPEED = 320;
+const CRAB_BURST_DURATION = 1.4;
+const CRAB_RETURN_SPEED = 90;
+const CRAB_RETURN_ARRIVE_DIST = 10;
+
+const GHOST_AMBIENT_SPEED = 45;
+const GHOST_CHASE_SPEED = 95;
+const GHOST_DRIFT_RANGE = 70;
+const GHOST_DRIFT_ARRIVE_DIST = 8;
+const GHOST_LOSE_INTEREST_MULT = 1.3;
 
 const ESCAPE_LEASH_MULT = 1.6;
 const ESCAPE_DETECTION_MULT = 1.4;
@@ -199,16 +210,84 @@ function updateSkeleton(enemy: SkeletonEnemy, ctx: EnemyUpdateContext): void {
   }
 }
 
-// Inert until checkpoint 8 fleshes out the ambush burst --- stays buried at
-// its ambush point.
 function updateSandCrab(enemy: CrabEnemy, ctx: EnemyUpdateContext): void {
   enemy.stateTimer += ctx.dt;
+
+  switch (enemy.state) {
+    case "patrol": {
+      if (distance(enemy.pos, ctx.playerPos) <= enemy.ambushRadius) {
+        enemy.state = "alert";
+        enemy.stateTimer = 0;
+        enemy.burstTimer = 0;
+      }
+      break;
+    }
+    case "alert": {
+      // Telegraph window --- burstTimer is the render layer's own clock for
+      // the sand-ripple, kept separate from stateTimer on principle even
+      // though they run in lockstep here.
+      faceToward(enemy, ctx.playerPos);
+      enemy.burstTimer += ctx.dt;
+      if (enemy.stateTimer >= CRAB_TELEGRAPH_DURATION) {
+        enemy.state = "chase";
+        enemy.stateTimer = 0;
+      }
+      break;
+    }
+    case "chase": {
+      moveToward(enemy, ctx.playerPos, CRAB_BURST_SPEED, ctx.dt);
+      // escapeBoost: stay surfaced and chasing instead of capping the burst.
+      if (!ctx.escapeBoost && enemy.stateTimer >= CRAB_BURST_DURATION) {
+        enemy.state = "return";
+        enemy.stateTimer = 0;
+      }
+      break;
+    }
+    case "return": {
+      if (ctx.escapeBoost) {
+        enemy.state = "chase";
+        enemy.stateTimer = 0;
+        break;
+      }
+      if (distance(enemy.pos, enemy.homePos) <= CRAB_RETURN_ARRIVE_DIST) {
+        // Re-buries regardless of whether the burst caught the player.
+        enemy.state = "patrol";
+        enemy.stateTimer = 0;
+        break;
+      }
+      moveToward(enemy, enemy.homePos, CRAB_RETURN_SPEED, ctx.dt);
+      break;
+    }
+  }
 }
 
-// Inert until checkpoint 8 gates it on zoneAt(...) === "cave" and wires the
-// drift-toward-player behaviour.
 function updateGhostPirate(enemy: GhostEnemy, ctx: EnemyUpdateContext): void {
+  // Ghosts don't exist outside the cave --- no update, and render skips them
+  // too, per the "invisible in daylight zones" design.
+  if (!ctx.playerInCave) return;
+
   enemy.stateTimer += ctx.dt;
+  const detectionRadius = ctx.escapeBoost
+    ? ctx.playerSightRadius * ESCAPE_DETECTION_MULT
+    : ctx.playerSightRadius;
+  const chaseSpeed = ctx.escapeBoost ? GHOST_CHASE_SPEED * ESCAPE_SPEED_MULT : GHOST_CHASE_SPEED;
+  const distToPlayer = distance(enemy.pos, ctx.playerPos);
+
+  if (distToPlayer <= detectionRadius) {
+    enemy.state = "chase";
+  } else if (enemy.state === "chase" && distToPlayer > detectionRadius * GHOST_LOSE_INTEREST_MULT) {
+    enemy.state = "patrol";
+  }
+
+  if (enemy.state === "chase") {
+    moveToward(enemy, ctx.playerPos, chaseSpeed, ctx.dt);
+    return;
+  }
+
+  if (distance(enemy.pos, enemy.driftTarget) <= GHOST_DRIFT_ARRIVE_DIST) {
+    enemy.driftTarget = randomPointWithin(enemy.homePos, GHOST_DRIFT_RANGE);
+  }
+  moveToward(enemy, enemy.driftTarget, GHOST_AMBIENT_SPEED, ctx.dt);
 }
 
 function distance(a: Vec2, b: Vec2): number {

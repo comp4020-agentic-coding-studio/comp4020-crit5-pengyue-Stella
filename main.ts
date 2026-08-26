@@ -60,6 +60,7 @@ const visual: PlayerVisualState = {
   hatLag: { x: 0, y: 0 },
   pickupPulse: 0,
   alertBeat: 0,
+  chased: false,
 };
 
 const trail = createTrail(player.x, player.y);
@@ -69,6 +70,8 @@ const enemies = createEnemies(layout);
 let score = 0;
 let status: ProgressStatus = "explore";
 let previousAlertIds = new Set<string>();
+let playerInCave = false;
+const CHASE_NOTICE_RADIUS = 260;
 
 const SPEED_BOOST_MULTIPLIER = 1.6;
 
@@ -138,26 +141,33 @@ function update(now: number, dt: number): void {
   }
 
   const zone = zoneAt(layout, player.x, player.y);
+  playerInCave = zone === "cave";
   updateEnemies(enemies, {
     playerPos: { x: player.x, y: player.y },
     playerSightRadius: sightRadius,
-    playerInCave: zone === "cave",
+    playerInCave,
     escapeBoost: status === "escaping",
     dt,
   });
 
   const currentAlertIds = new Set<string>();
   let startled = false;
+  let nearbyChase = false;
   for (const enemy of enemies) {
+    const dx = enemy.pos.x - player.x;
+    const dy = enemy.pos.y - player.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (enemy.state === "chase" && dist <= CHASE_NOTICE_RADIUS) nearbyChase = true;
+
     if (enemy.state !== "alert") continue;
     currentAlertIds.add(enemy.id);
     if (previousAlertIds.has(enemy.id)) continue;
-    const dx = enemy.pos.x - player.x;
-    const dy = enemy.pos.y - player.y;
-    if (Math.hypot(dx, dy) <= ALERT_NOTICE_RADIUS) startled = true;
+    if (dist <= ALERT_NOTICE_RADIUS) startled = true;
   }
   previousAlertIds = currentAlertIds;
   if (startled) visual.alertBeat = ALERT_BEAT_DURATION;
+  visual.chased = nearbyChase;
 
   // checkLoss runs last so a fatal touch doesn't leave one extra reveal/trail
   // tick recorded past the moment of contact.
@@ -178,7 +188,7 @@ function render(now: number): void {
   drawShip(ctx, layout.shipPos, { beacon: false, now });
   drawPickups(ctx, pickups, now);
   drawTrail(ctx, trail);
-  drawEnemies(ctx, enemies, now);
+  drawEnemies(ctx, enemies, now, playerInCave);
   drawPirate(ctx, visual);
   ctx.restore();
 

@@ -1,27 +1,36 @@
-import type { CrabEnemy, Enemy, SkeletonEnemy } from "../enemies.ts";
+import { CRAB_TELEGRAPH_DURATION } from "../enemies.ts";
+import type { CrabEnemy, Enemy, GhostEnemy, SkeletonEnemy } from "../enemies.ts";
 
 const SKELETON_BONE = "#e8e2d0";
 const SKELETON_OUTLINE = "#8a8270";
 const CRAB_SHELL = "#b5502f";
 const CRAB_OUTLINE = "#6e2f1a";
+const GHOST_FILL = "rgba(214, 227, 236, 0.55)";
+const GHOST_OUTLINE = "rgba(150, 170, 185, 0.6)";
 
-export function drawEnemies(ctx: CanvasRenderingContext2D, enemies: Enemy[], now: number): void {
+export function drawEnemies(
+  ctx: CanvasRenderingContext2D,
+  enemies: Enemy[],
+  now: number,
+  playerInCave: boolean,
+): void {
   for (const enemy of enemies) {
-    drawEnemy(ctx, enemy, now);
+    drawEnemy(ctx, enemy, now, playerInCave);
   }
 }
 
-function drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy, now: number): void {
+function drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy, now: number, playerInCave: boolean): void {
   switch (enemy.kind) {
     case "skeleton":
       drawSkeleton(ctx, enemy);
       break;
     case "crab":
       drawCrab(ctx, enemy);
+      if (enemy.state === "alert") drawCrabRipple(ctx, enemy);
       break;
     case "ghost":
-      // Ghosts stay undrawn outside the cave until checkpoint 8 wires the
-      // zone gate --- nothing to render here yet.
+      // Invisible outside the cave --- it doesn't spawn or act there either.
+      if (playerInCave) drawGhost(ctx, enemy, now);
       break;
   }
 
@@ -97,6 +106,50 @@ function drawCrab(ctx: CanvasRenderingContext2D, enemy: CrabEnemy): void {
   ctx.lineTo(13, -6);
   ctx.stroke();
 
+  ctx.restore();
+}
+
+function drawGhost(ctx: CanvasRenderingContext2D, enemy: GhostEnemy, now: number): void {
+  const drift = Math.sin(now / 260 + enemy.pos.x) * 3;
+  ctx.save();
+  ctx.translate(enemy.pos.x, enemy.pos.y + drift);
+  ctx.scale(enemy.facing, 1);
+
+  ctx.fillStyle = GHOST_FILL;
+  ctx.strokeStyle = GHOST_OUTLINE;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(0, -4, 9, Math.PI, 0);
+  ctx.lineTo(9, 10);
+  for (let i = 0; i < 3; i++) {
+    const x = 9 - i * 6;
+    ctx.quadraticCurveTo(x - 3, 6, x - 6, 10);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(30, 40, 50, 0.6)";
+  ctx.beginPath();
+  ctx.arc(-3, -5, 1.2, 0, Math.PI * 2);
+  ctx.arc(3, -5, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// A ripple in the sand, separate from the shared alert-tell --- only drawn
+// during the crab's own pre-burst telegraph window.
+function drawCrabRipple(ctx: CanvasRenderingContext2D, enemy: CrabEnemy): void {
+  const progress = Math.min(1, enemy.burstTimer / CRAB_TELEGRAPH_DURATION);
+  const radius = 8 + progress * 14;
+  ctx.save();
+  ctx.translate(enemy.pos.x, enemy.pos.y + 6);
+  ctx.strokeStyle = `rgba(214, 190, 140, ${0.6 * (1 - progress)})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius, radius * 0.4, 0, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 

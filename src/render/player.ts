@@ -12,6 +12,8 @@ export interface PlayerVisualState {
   pickupPulse: number;
   /** seconds remaining on a "nearby enemy just noticed me" startle; 0 when idle */
   alertBeat: number;
+  /** true while any enemy is actively chasing within notice range */
+  chased: boolean;
 }
 
 export const PICKUP_PULSE_DURATION = 0.35;
@@ -19,15 +21,18 @@ export const ALERT_BEAT_DURATION = 0.4;
 
 const IDLE_FREQ = 1.6;
 const RUN_FREQ = 8;
+const CHASE_FREQ_BOOST = 1.3;
+const CHASE_BOB_BOOST = 1.35;
 
 // A small vector chibi pirate: oversized head, small body, no image assets.
 // The bob/squash/arm-swing amplitude is what makes idle vs. running readable
 // with zero text.
 export function drawPirate(ctx: CanvasRenderingContext2D, state: PlayerVisualState): void {
-  const { pos, facing, moving, animTime, hatLag, pickupPulse, alertBeat } = state;
-  const freq = moving ? RUN_FREQ : IDLE_FREQ;
+  const { pos, facing, moving, animTime, hatLag, pickupPulse, alertBeat, chased } = state;
+  const chaseBoost = moving && chased;
+  const freq = (moving ? RUN_FREQ : IDLE_FREQ) * (chaseBoost ? CHASE_FREQ_BOOST : 1);
   const phase = animTime * freq;
-  const bob = Math.sin(phase) * (moving ? 4 : 1.5);
+  const bob = Math.sin(phase) * (moving ? 4 : 1.5) * (chaseBoost ? CHASE_BOB_BOOST : 1);
   const squash = 1 + Math.sin(phase) * (moving ? 0.08 : 0.02);
   const pickupHop =
     pickupPulse > 0 ? Math.sin((1 - pickupPulse / PICKUP_PULSE_DURATION) * Math.PI) * 7 : 0;
