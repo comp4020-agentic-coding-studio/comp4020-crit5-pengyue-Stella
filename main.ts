@@ -2,15 +2,19 @@ import { InputController } from "./src/input.ts";
 import { updateCamera } from "./src/camera.ts";
 import { advanceReveal, createMap, revealAround, worldSize } from "./src/map.ts";
 import { createTrail, maybeRecordPoint } from "./src/trail.ts";
-import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS } from "./src/world.ts";
+import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS, zoneAt } from "./src/world.ts";
 import { collectNearby, createPickups } from "./src/pickups.ts";
+import { createEnemies, updateEnemies } from "./src/enemies.ts";
+import { checkLoss } from "./src/game-logic.ts";
+import type { ProgressStatus } from "./src/game-logic.ts";
 import { drawMap } from "./src/render/map.ts";
 import { drawTrail } from "./src/render/trail.ts";
-import { drawPirate, PICKUP_PULSE_DURATION } from "./src/render/player.ts";
+import { drawPirate, ALERT_BEAT_DURATION, PICKUP_PULSE_DURATION } from "./src/render/player.ts";
 import type { PlayerVisualState } from "./src/render/player.ts";
 import { drawJoystick } from "./src/render/joystick.ts";
 import { drawShip } from "./src/render/ship.ts";
 import { drawPickups } from "./src/render/pickups.ts";
+import { drawEnemies } from "./src/render/enemies.ts";
 import { drawScoreHud } from "./src/render/hud.ts";
 
 function requireCanvas(): HTMLCanvasElement {
@@ -32,6 +36,9 @@ const SIGHT_RADIUS = 170;
 const PLAYER_SPEED = 190;
 const HAT_LAG_DISTANCE = 5;
 const HAT_LAG_SMOOTHING = 10;
+const PLAYER_COLLISION_RADIUS = 10;
+const ENEMY_COLLISION_RADIUS = 12;
+const ALERT_NOTICE_RADIUS = 220;
 
 const layout = buildWorldLayout();
 const map = createMap(WORLD_COLS, WORLD_ROWS, WORLD_CELL_SIZE, layout);
@@ -52,12 +59,16 @@ const visual: PlayerVisualState = {
   animTime: 0,
   hatLag: { x: 0, y: 0 },
   pickupPulse: 0,
+  alertBeat: 0,
 };
 
 const trail = createTrail(player.x, player.y);
 const input = new InputController(canvas);
 const pickups = createPickups(layout);
+const enemies = createEnemies(layout);
 let score = 0;
+let status: ProgressStatus = "explore";
+let previousAlertIds = new Set<string>();
 
 const SPEED_BOOST_MULTIPLIER = 1.6;
 
@@ -85,11 +96,14 @@ function frame(now: number): void {
 }
 
 function update(now: number, dt: number): void {
+  if (status === "won" || status === "lost") return;
+
   const move = input.getMovement();
   const moving = move.x !== 0 || move.y !== 0;
 
   player.speedTimer = Math.max(0, player.speedTimer - dt);
   visual.pickupPulse = Math.max(0, visual.pickupPulse - dt);
+  visual.alertBeat = Math.max(0, visual.alertBeat - dt);
   const speed = PLAYER_SPEED * (player.speedTimer > 0 ? SPEED_BOOST_MULTIPLIER : 1);
 
   if (moving) {
@@ -122,6 +136,36 @@ function update(now: number, dt: number): void {
     player.speedTimer += effect.speedTimerSeconds;
     visual.pickupPulse = PICKUP_PULSE_DURATION;
   }
+
+  const zone = zoneAt(layout, player.x, player.y);
+  updateEnemies(enemies, {
+    playerPos: { x: player.x, y: player.y },
+    playerSightRadius: sightRadius,
+    playerInCave: zone === "cave",
+    escapeBoost: status === "escaping",
+    dt,
+  });
+
+  const currentAlertIds = new Set<string>();
+  let startled = false;
+  for (const enemy of enemies) {
+    if (enemy.state !== "alert") continue;
+    currentAlertIds.add(enemy.id);
+    if (previousAlertIds.has(enemy.id)) continue;
+    const dx = enemy.pos.x - player.x;
+    const dy = enemy.pos.y - player.y;
+    if (Math.hypot(dx, dy) <= ALERT_NOTICE_RADIUS) startled = true;
+  }
+  previousAlertIds = currentAlertIds;
+  if (startled) visual.alertBeat = ALERT_BEAT_DURATION;
+
+  // checkLoss runs last so a fatal touch doesn't leave one extra reveal/trail
+  // tick recorded past the moment of contact.
+  status = checkLoss({
+    status,
+    player: { pos: { x: player.x, y: player.y }, radius: PLAYER_COLLISION_RADIUS },
+    enemies: enemies.map((enemy) => ({ pos: enemy.pos, radius: ENEMY_COLLISION_RADIUS })),
+  });
 }
 
 function render(now: number): void {
@@ -134,6 +178,7 @@ function render(now: number): void {
   drawShip(ctx, layout.shipPos, { beacon: false, now });
   drawPickups(ctx, pickups, now);
   drawTrail(ctx, trail);
+  drawEnemies(ctx, enemies, now);
   drawPirate(ctx, visual);
   ctx.restore();
 

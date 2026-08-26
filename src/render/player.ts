@@ -10,9 +10,12 @@ export interface PlayerVisualState {
   hatLag: Vec2;
   /** seconds remaining on a "just picked something up" hop; 0 when idle */
   pickupPulse: number;
+  /** seconds remaining on a "nearby enemy just noticed me" startle; 0 when idle */
+  alertBeat: number;
 }
 
 export const PICKUP_PULSE_DURATION = 0.35;
+export const ALERT_BEAT_DURATION = 0.4;
 
 const IDLE_FREQ = 1.6;
 const RUN_FREQ = 8;
@@ -21,16 +24,18 @@ const RUN_FREQ = 8;
 // The bob/squash/arm-swing amplitude is what makes idle vs. running readable
 // with zero text.
 export function drawPirate(ctx: CanvasRenderingContext2D, state: PlayerVisualState): void {
-  const { pos, facing, moving, animTime, hatLag, pickupPulse } = state;
+  const { pos, facing, moving, animTime, hatLag, pickupPulse, alertBeat } = state;
   const freq = moving ? RUN_FREQ : IDLE_FREQ;
   const phase = animTime * freq;
   const bob = Math.sin(phase) * (moving ? 4 : 1.5);
   const squash = 1 + Math.sin(phase) * (moving ? 0.08 : 0.02);
   const pickupHop =
     pickupPulse > 0 ? Math.sin((1 - pickupPulse / PICKUP_PULSE_DURATION) * Math.PI) * 7 : 0;
+  const alertProgress = alertBeat / ALERT_BEAT_DURATION;
+  const alertShake = alertBeat > 0 ? Math.sin(alertProgress * Math.PI * 4) * 3 * alertProgress : 0;
 
   ctx.save();
-  ctx.translate(pos.x, pos.y + bob - pickupHop);
+  ctx.translate(pos.x + alertShake, pos.y + bob - pickupHop);
   ctx.scale(facing * squash, 1 / squash);
 
   ctx.globalAlpha = 0.25;
