@@ -1,70 +1,80 @@
 # Process overview
 
-<!-- TEMPLATE: this file is a shape to fill in, not a form. Replace everything
-     in it with your own overview, and delete this comment — `pnpm
-     check:evidence` will remind you if it's still here. -->
-
-A reading-guide to how the work came together --- a map to your process, not an
-essay about it. Markers read this file and follow its citations; they don't
-trawl the repo for evidence you didn't point at, so if a moment mattered, cite
-it.
-
-This file is the shape; the course site's
-[assessment page](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#what-you-submit)
-is the requirement, and its
-[word counts](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#word-counts)
-cover every deliverable.
-
 ## What I built
 
-One paragraph: the thing, and the idea behind it.
+"X Marks the Spot" — a top-down pirate exploration game on canvas. You spawn
+at your ship, explore a beach → jungle → ruins world (plus a cave pocket
+tucked inside the ruins) that reveals as a hand-drawn parchment map under a
+torchlight-style fog of war, collect three map fragments to reveal the X,
+dodge three enemy types with a shared four-state FSM (a leashed skeleton, a
+buried sand crab that bursts on approach, and a cave-only ghost pirate),
+optionally grab a cursed treasure for a big score bonus at the cost of waking
+the whole map, then race the fragment-revealed X back to the ship while
+everything gets harder (`escapeBoost`). Touching any enemy loses; reaching the
+ship while escaping wins. [`236bfe8`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/236bfe8)
+is the design doc (`PLAN.md`); every commit after it is that plan built
+checkpoint by checkpoint, each gated on a green `pnpm check` before landing.
 
 ## The moments that mattered
 
-Three or four for an assignment; fewer is fine for a weekly prototype. Keep the
-list short so each moment has room to do all four jobs:
+1. **Splitting the mandatory-test checkpoint off from the enemies that use
+   it.** PLAN.md's own loss-rule test needed `Player`/`Enemy` shapes that
+   didn't exist yet, so the obvious move was to write it alongside the first
+   enemy. Instead I split it: `game-logic.ts` (the progression state machine
+   and `checkLoss`) landed as its own commit before any enemy code existed,
+   with its test suite covering the loss rule across every active status.
+   That kept the single most spec-relevant test small, self-contained, and
+   easy to point a marker at directly, rather than buried inside a larger
+   enemy-framework diff.
+   [`78613a5`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/78613a5)
 
-1. **what happened** --- the problem, or the thing that went wrong
-2. **what you did instead of the obvious thing** --- the call you made, and why
-   it beat the obvious one
-3. **how you knew it was right** --- the check you ran, the viewport you looked
-   at, what you read before accepting the diff
-4. **the citation** --- a commit or commit range, a `CLAUDE.md` change, a check
-   that went from red to green, a prompt paired with the commit it produced
+2. **Isolating the restart input primitive as its own commit.** The escape
+   climax (checkpoint 10) had three independent pieces — the completable
+   fragment→X→ship loop, the escape-boost/beacon/lifeline effects, and
+   win/lose + restart — and restart was the one with real edge-case risk: a
+   key held into the fatal collision keeps firing OS key-repeat `keydown`
+   events, which would dismiss the lose screen before the player even
+   registers losing. Rather than land all of checkpoint 10 in one commit and
+   risk a follow-up fix touching everything, I split it into 10a/10b/10c so
+   the arm-delay logic (`terminalEnteredAt` / `RESTART_ARM_DELAY`, and the
+   edge-triggered `consumeActivation`/`clearActivation` pair on
+   `InputController`) could be reasoned about and tested in isolation.
+   [`bb48dac...2d9834e`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/compare/bb48dac...2d9834e)
 
-Jobs 2 and 3 are the ones the repo can't tell a reader on its own, so they're
-where the marks are. The strongest moments are the ones where a correction
-landed in the **harness** --- the standards and checks your work has to satisfy
---- rather than in a retry: a rule added to `CLAUDE.md`, a check wired up, an
-attempt thrown away. Retrying until it passes is the routine case, and changing
-what the work runs against is the skilled one.
+3. **Tracing the cursed-treasure trap against real coordinates instead of
+   trusting the constant.** `ALERT_PULSE_RADIUS = 420` reads like it should
+   cover "nearby danger" — it's already well past any single enemy's own
+   detection radius. But with no browser available to actually play it, I
+   worked through `buildWorldLayout()`'s literal numbers by hand: the cave
+   sits in the corner of the map, and both skeleton homes are 1400–1500px
+   from the cursed treasure's position. At 420, grabbing the treasure never
+   alerted either skeleton — only the crab and ghosts already living in the
+   cave ever reacted, so the "big score bonus, big trap" moment was mostly
+   invisible. I widened the radius to 1600 so it reaches every enemy home in
+   the world. This is the one deliberate tuning change the self-playtest
+   (checkpoint 11) was supposed to surface, and it's a real example of a
+   number that looked fine in isolation but was wrong once checked against
+   the actual layout it runs against.
+   [`e52a999`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/e52a999)
 
-Cite each moment as a link whose text is the commit hash or range and whose
-target is this repo's commit or compare URL, so a reader clicks straight to the
-evidence:
+## What still needs a human
 
-- one commit: [`a1b2c3d`](https://github.com/YOUR-ORG/YOUR-REPO/commit/a1b2c3d)
-- a range:
-  [`a1b2c3d...e4f5a6b`](https://github.com/YOUR-ORG/YOUR-REPO/compare/a1b2c3d...e4f5a6b)
+Two things I deliberately did not fake:
 
-To pair a prompt with the commit it produced, quote the prompt (curated, not a
-full transcript) next to the citation:
-
-> the prompt, verbatim
-
-Screenshots are welcome where one carries the verification better than a
-sentence does. Commit the file to this repo and link it with a **relative**
-path, which is what makes it render on GitHub: `![alt text](docs/before.png)`.
-Images don't count towards the word count and don't replace the citation.
-
-## Before you ship
-
-`pnpm check:evidence` verifies your citations resolve to real commits, that a
-reflection entry the marker reads is in `reflections/`, and that your
-`CLAUDE.md` is there --- before a marker ever opens the file. It checks that
-your map is traceable, not that it is good: the marker judges whether your
-small, deliberately chosen set of moments shows real judgement and reflection. A
-green check is not a substitute for that curation.
-
-Images aren't checked: unlike a citation whose SHA doesn't resolve, a broken
-image is visible the moment this file is rendered on GitHub.
+- **Real browser verification.** `agent-browser` and headless-browser
+  tooling (chromium/playwright/puppeteer) were unavailable in this
+  environment for the whole build. Every checkpoint was verified with
+  `pnpm check` (typecheck, build, lint, tests) plus close reading of the
+  render code and the actual world coordinates — not by looking at the
+  rendered page. The game has never actually been seen running. Before this
+  ships, someone needs to open it in a real browser at both 1920×1080 and
+  390×844, play a full loop, and confirm the things code review can't: does
+  it actually feel readable, does the joystick behave under a real touch
+  drag, does anything overlap or clip that the math says shouldn't.
+- **Real playtesting.** PLAN.md asks for "someone who hasn't seen the code."
+  The checkpoint-11 pass above is a self-playtest via code tracing, which
+  found one real balance issue, but it is not a substitute for a first-time
+  player's reaction — particularly to difficulty (is the skeleton's leash
+  fair, is the cave dark enough to be tense without being frustrating) and to
+  the discoverability claims in `PLAN.md` (is the jungle-boundary skeleton
+  actually noticed before it's dangerous).
