@@ -21,15 +21,15 @@ const SCORE_BY_KIND: Record<PickupKind, number> = {
 export const TORCH_SIGHT_BONUS = 60;
 export const SPEED_BOOST_SECONDS = 6;
 
-// Cursed treasure (world.ts's cursedTreasurePos) is deliberately left out here
-// --- it's a checkpoint-9 addition wired in alongside the alert pulse it
-// triggers, not part of the base pickup set.
+export const ALERT_PULSE_RADIUS = 420;
+
 export function createPickups(layout: WorldLayout): Pickup[] {
   const pickups: Pickup[] = [];
   layout.coinPositions.forEach((pos, i) => pickups.push({ id: `coin-${i}`, kind: "coin", pos, collected: false }));
   layout.gemPositions.forEach((pos, i) => pickups.push({ id: `gem-${i}`, kind: "gem", pos, collected: false }));
   pickups.push({ id: "torch", kind: "torch", pos: layout.torchPos, collected: false });
   pickups.push({ id: "speed", kind: "speed", pos: layout.speedBoostPos, collected: false });
+  pickups.push({ id: "cursed", kind: "cursed", pos: layout.cursedTreasurePos, collected: false });
   return pickups;
 }
 

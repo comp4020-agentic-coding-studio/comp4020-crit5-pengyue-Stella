@@ -3,9 +3,9 @@ import { updateCamera } from "./src/camera.ts";
 import { advanceReveal, createMap, revealAround, worldSize } from "./src/map.ts";
 import { createTrail, maybeRecordPoint } from "./src/trail.ts";
 import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS, zoneAt } from "./src/world.ts";
-import { collectNearby, createPickups } from "./src/pickups.ts";
-import { createEnemies, updateEnemies } from "./src/enemies.ts";
-import { checkLoss } from "./src/game-logic.ts";
+import { ALERT_PULSE_RADIUS, collectNearby, createPickups } from "./src/pickups.ts";
+import { createEnemies, triggerAlertPulse, updateEnemies } from "./src/enemies.ts";
+import { checkLoss, computeSightRadius } from "./src/game-logic.ts";
 import type { ProgressStatus } from "./src/game-logic.ts";
 import { drawMap } from "./src/render/map.ts";
 import { drawTrail } from "./src/render/trail.ts";
@@ -16,6 +16,7 @@ import { drawShip } from "./src/render/ship.ts";
 import { drawPickups } from "./src/render/pickups.ts";
 import { drawEnemies } from "./src/render/enemies.ts";
 import { drawScoreHud } from "./src/render/hud.ts";
+import { drawSightVignette } from "./src/render/vignette.ts";
 
 function requireCanvas(): HTMLCanvasElement {
   const el = document.querySelector<HTMLCanvasElement>("#game");
@@ -71,6 +72,7 @@ let score = 0;
 let status: ProgressStatus = "explore";
 let previousAlertIds = new Set<string>();
 let playerInCave = false;
+let sightRadiusForRender = SIGHT_RADIUS;
 const CHASE_NOTICE_RADIUS = 260;
 
 const SPEED_BOOST_MULTIPLIER = 1.6;
@@ -127,7 +129,10 @@ function update(now: number, dt: number): void {
   visual.hatLag.x += (lagTargetX - visual.hatLag.x) * lerp;
   visual.hatLag.y += (lagTargetY - visual.hatLag.y) * lerp;
 
-  const sightRadius = SIGHT_RADIUS + player.torchBonus;
+  const zone = zoneAt(layout, player.x, player.y);
+  playerInCave = zone === "cave";
+  const sightRadius = computeSightRadius(SIGHT_RADIUS, player.torchBonus, zone);
+  sightRadiusForRender = sightRadius;
   revealAround(map, player.x, player.y, sightRadius, now);
   advanceReveal(map, now);
   maybeRecordPoint(trail, player.x, player.y);
@@ -139,9 +144,10 @@ function update(now: number, dt: number): void {
     player.speedTimer += effect.speedTimerSeconds;
     visual.pickupPulse = PICKUP_PULSE_DURATION;
   }
+  if (effect.alertPulse) {
+    triggerAlertPulse(enemies, layout.cursedTreasurePos, ALERT_PULSE_RADIUS);
+  }
 
-  const zone = zoneAt(layout, player.x, player.y);
-  playerInCave = zone === "cave";
   updateEnemies(enemies, {
     playerPos: { x: player.x, y: player.y },
     playerSightRadius: sightRadius,
@@ -192,6 +198,14 @@ function render(now: number): void {
   drawPirate(ctx, visual);
   ctx.restore();
 
+  drawSightVignette(
+    ctx,
+    viewport.width,
+    viewport.height,
+    player.x - camera.x,
+    player.y - camera.y,
+    sightRadiusForRender,
+  );
   drawScoreHud(ctx, score);
   drawJoystick(ctx, input.joystick);
 }
