@@ -16,6 +16,7 @@ function makeLayout(): WorldLayout {
     gemPositions: [],
     torchPos: { x: 0, y: 0 },
     speedBoostPos: { x: 0, y: 0 },
+    trapPositions: [],
     skeletonHomes: [{ x: 550, y: 500 }],
     crabAmbushPoints: [{ x: 900, y: 500 }],
     ghostSpawnPoints: [{ x: 500, y: 900 }],

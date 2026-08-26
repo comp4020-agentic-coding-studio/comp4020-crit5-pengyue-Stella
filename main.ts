@@ -9,8 +9,10 @@ import { createEnemies, triggerAlertPulse, updateEnemies } from "./src/enemies.t
 import { checkLoss, collectFragment, computeSightRadius, reachShip, reachX } from "./src/game-logic.ts";
 import type { ProgressStatus } from "./src/game-logic.ts";
 import { createObstacles, resolveObstacleCollision } from "./src/obstacles.ts";
+import { createTraps, trapHitCircles, updateTraps } from "./src/traps.ts";
 import { drawMap, drawXMarker } from "./src/render/map.ts";
 import { drawObstacles } from "./src/render/obstacles.ts";
+import { drawTraps } from "./src/render/traps.ts";
 import { drawTrail } from "./src/render/trail.ts";
 import { drawPirate, ALERT_BEAT_DURATION, PICKUP_PULSE_DURATION } from "./src/render/player.ts";
 import type { PlayerVisualState } from "./src/render/player.ts";
@@ -75,6 +77,7 @@ const input = new InputController(canvas);
 let pickups = createPickups(layout);
 let fragments = createFragments(layout);
 let enemies = createEnemies(layout);
+let traps = createTraps(layout);
 let score = 0;
 let status: ProgressStatus = "explore";
 let fragmentsCollected = 0;
@@ -202,6 +205,7 @@ function update(now: number, dt: number): void {
     obstacles,
     dt,
   });
+  updateTraps(traps, { x: player.x, y: player.y }, dt);
 
   const currentAlertIds = new Set<string>();
   let startled = false;
@@ -223,11 +227,16 @@ function update(now: number, dt: number): void {
   visual.chased = nearbyChase;
 
   // checkLoss runs last so a fatal touch doesn't leave one extra reveal/trail
-  // tick recorded past the moment of contact.
+  // tick recorded past the moment of contact. A triggered trap is a hazard
+  // circle exactly like an enemy --- folded into the same list rather than
+  // given its own loss rule.
   const afterLoss = checkLoss({
     status,
     player: { pos: { x: player.x, y: player.y }, radius: PLAYER_COLLISION_RADIUS },
-    enemies: enemies.map((enemy) => ({ pos: enemy.pos, radius: ENEMY_COLLISION_RADIUS })),
+    enemies: [
+      ...enemies.map((enemy) => ({ pos: enemy.pos, radius: ENEMY_COLLISION_RADIUS })),
+      ...trapHitCircles(traps),
+    ],
   });
   if (afterLoss !== status) {
     terminalEnteredAt = now;
@@ -265,6 +274,7 @@ function resetGame(): void {
   pickups = createPickups(layout);
   fragments = createFragments(layout);
   enemies = createEnemies(layout);
+  traps = createTraps(layout);
 
   score = 0;
   status = "explore";
@@ -285,6 +295,7 @@ function render(now: number): void {
   ctx.translate(-camera.x, -camera.y);
   drawMap(ctx, map, now, camera.x, camera.y, viewport.width, viewport.height);
   drawObstacles(ctx, obstacles, map, now);
+  drawTraps(ctx, traps, map, now);
   drawShip(ctx, layout.shipPos, { beacon: escaping, now });
   drawFragments(ctx, fragments, now);
   drawPickups(ctx, pickups, now);

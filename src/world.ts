@@ -1,9 +1,9 @@
 import type { Vec2 } from "./types.ts";
 
 // Fixed once, reused everywhere: enemy homes decided here are the same
-// coordinates checkpoints 7-8 spawn real enemies at, and the same coordinates
-// checkpoint 5's terrain decorations (bone density, ambush mounds) cluster
-// around --- deciding it in one place avoids the two drifting apart.
+// coordinates enemies spawn at, and the same coordinates the map's terrain
+// decorations (bone density, ambush mounds) cluster around --- deciding it in
+// one place avoids the two drifting apart.
 export type Zone = "beach" | "jungle" | "ruins" | "cave";
 
 export const WORLD_COLS = 80;
@@ -28,6 +28,7 @@ export interface WorldLayout {
   gemPositions: Vec2[];
   torchPos: Vec2;
   speedBoostPos: Vec2;
+  trapPositions: Vec2[];
   skeletonHomes: Vec2[];
   crabAmbushPoints: Vec2[];
   ghostSpawnPoints: Vec2[];
@@ -38,6 +39,27 @@ export interface WorldLayout {
 
 function pointInRect(x: number, y: number, rect: Rect): boolean {
   return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+}
+
+// Small hand-placed constellations around a centre, rather than one point ---
+// this is what turns a reward into a "place" instead of a dot. Coin and gem
+// offsets are deliberately different shapes so the two kinds don't land on
+// top of each other when a POI has both.
+const COIN_OFFSETS: Vec2[] = [
+  { x: -34, y: -18 },
+  { x: 30, y: -26 },
+  { x: 8, y: 30 },
+  { x: -22, y: 26 },
+  { x: 36, y: 14 },
+];
+const GEM_OFFSETS: Vec2[] = [
+  { x: 46, y: -6 },
+  { x: -12, y: -40 },
+  { x: -44, y: 8 },
+];
+
+function cluster(center: Vec2, offsets: Vec2[], count: number): Vec2[] {
+  return offsets.slice(0, count).map((o) => ({ x: center.x + o.x, y: center.y + o.y }));
 }
 
 // South-to-north bands (y=0 is the north/top edge; the ship sits at the
@@ -51,39 +73,85 @@ export function buildWorldLayout(): WorldLayout {
   const jungleStartY = h * 0.4;
   const caveRect: Rect = { x: w * 0.05, y: h * 0.05, width: w * 0.3, height: h * 0.18 };
 
+  const shipPos = { x: w / 2, y: h - 120 };
+  const xPos = { x: w * 0.42, y: h * 0.22 };
+  const cursedTreasurePos = { x: caveRect.x + caveRect.width * 0.3, y: caveRect.y + caveRect.height * 0.7 };
+
+  // Points of interest --- a handful of named places instead of an even
+  // scatter, each either a light early foothold or guarded by a nearby
+  // enemy home/ambush point and/or a trap (declared further down).
+  const spawnCove = { x: w / 2 + 140, y: h - 220 };
+  const jungleGroveTreasure = { x: 1800, y: 1120 };
+  const jungleWestTreasure = { x: 600, y: 1080 };
+  const ruinsVault = { x: 1300, y: 320 };
+  const ruinsWatchtower = { x: 950, y: 260 };
+  const caveGrotto = { x: 380, y: 300 };
+
   return {
-    shipPos: { x: w / 2, y: h - 120 },
+    shipPos,
     fragmentPositions: [
       { x: w / 2 - 260, y: h - 260 },
       { x: w * 0.62, y: h * 0.55 },
       { x: caveRect.x + caveRect.width * 0.6, y: caveRect.y + caveRect.height * 0.5 },
     ],
-    xPos: { x: w * 0.42, y: h * 0.22 },
-    cursedTreasurePos: { x: caveRect.x + caveRect.width * 0.3, y: caveRect.y + caveRect.height * 0.7 },
+    xPos,
+    cursedTreasurePos,
     coinPositions: [
-      { x: w / 2 + 120, y: h - 200 },
-      { x: w * 0.7, y: h * 0.6 },
-      { x: w * 0.3, y: h * 0.5 },
-      { x: w * 0.55, y: h * 0.65 },
+      ...cluster(spawnCove, COIN_OFFSETS, 2),
+      ...cluster(jungleGroveTreasure, COIN_OFFSETS, 3),
+      ...cluster(jungleWestTreasure, COIN_OFFSETS, 2),
+      ...cluster(ruinsWatchtower, COIN_OFFSETS, 2),
+      ...cluster(ruinsVault, COIN_OFFSETS, 2),
     ],
     gemPositions: [
-      { x: w * 0.75, y: h * 0.5 },
-      { x: w * 0.25, y: h * 0.62 },
+      ...cluster(jungleGroveTreasure, GEM_OFFSETS, 2),
+      ...cluster(ruinsVault, GEM_OFFSETS, 2),
+      ...cluster(caveGrotto, GEM_OFFSETS, 2),
     ],
-    torchPos: { x: w * 0.6, y: h * 0.3 },
-    speedBoostPos: { x: w * 0.3, y: h * 0.25 },
+    torchPos: { x: 1360, y: 340 },
+    speedBoostPos: { x: 1250, y: 420 },
+    // Guarding a vault, a grove, the cursed grotto and the X itself --- traps
+    // sit right where a treasure cluster's own guard enemies leave a gap.
+    trapPositions: [
+      { x: ruinsVault.x - 70, y: ruinsVault.y + 50 },
+      { x: ruinsVault.x + 60, y: ruinsVault.y - 40 },
+      { x: jungleGroveTreasure.x - 50, y: jungleGroveTreasure.y + 40 },
+      { x: caveGrotto.x + 55, y: caveGrotto.y - 35 },
+      { x: xPos.x + 45, y: xPos.y + 55 },
+    ],
+    // Five homes instead of two --- jungle-heavy with one deliberately pushed
+    // into the ruins border, so leash+detection zones overlap each other and
+    // the ambush points below rather than sitting in isolation. The first
+    // entry guards the jungle entrance the player walks through from the
+    // ship, but sits deep enough in that its leash+detection radius (370px)
+    // can't reach the ship spawn itself --- a skeleton that could detect the
+    // player before they'd even taken a step was a real bug found in
+        // playtesting, not a hypothetical.
     skeletonHomes: [
-      { x: w / 2, y: beachStartY - 60 },
-      { x: w * 0.68, y: h * 0.5 },
+      { x: w / 2, y: beachStartY - 240 },
+      { x: 1740.8, y: 1056 },
+      { x: 563.2, y: 1113.6 },
+      { x: w / 2, y: jungleStartY - 40 },
+      { x: 970, y: 300 },
     ],
+    // Six ambush points, several placed to overlap a skeleton's territory
+    // rather than stand alone --- that overlap is the "danger zone", not a
+    // single ambush in a quiet corner.
     crabAmbushPoints: [
-      { x: w * 0.35, y: h * 0.32 },
-      { x: w * 0.55, y: h * 0.15 },
-      { x: w * 0.15, y: h * 0.35 },
+      { x: 896, y: 614.4 },
+      { x: 1408, y: 288 },
+      { x: 384, y: 672 },
+      { x: 640, y: 1152 },
+      { x: 1203.2, y: 345.6 },
+      { x: 1920, y: 1190.4 },
     ],
+    // Four ghosts in a cave pocket this small is already dense --- doubled
+    // from two so the detour actually feels dangerous, not merely spooky.
     ghostSpawnPoints: [
       { x: caveRect.x + caveRect.width * 0.3, y: caveRect.y + caveRect.height * 0.3 },
       { x: caveRect.x + caveRect.width * 0.7, y: caveRect.y + caveRect.height * 0.7 },
+      { x: caveRect.x + caveRect.width * 0.5, y: caveRect.y + caveRect.height * 0.85 },
+      { x: caveRect.x + caveRect.width * 0.15, y: caveRect.y + caveRect.height * 0.6 },
     ],
     caveRect,
     beachStartY,

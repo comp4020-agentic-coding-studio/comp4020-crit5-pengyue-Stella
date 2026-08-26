@@ -51,8 +51,11 @@ export interface EnemyUpdateContext {
 // Ghosts are incorporeal --- only skeleton/crab get pushed out of obstacles.
 const ENEMY_OBSTACLE_RADIUS = 12;
 
-const SKELETON_LEASH = 220;
-const SKELETON_DETECTION_RADIUS = 150;
+// Exported so world.ts's placement (and its own safety test) can reason
+// about a skeleton's true danger radius (leash + detection) without
+// duplicating these numbers as magic constants elsewhere.
+export const SKELETON_LEASH = 220;
+export const SKELETON_DETECTION_RADIUS = 150;
 const SKELETON_PATROL_SPEED = 55;
 const SKELETON_CHASE_SPEED = 230;
 const SKELETON_ALERT_DURATION = 0.3;

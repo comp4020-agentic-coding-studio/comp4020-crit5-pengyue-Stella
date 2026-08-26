@@ -24,6 +24,25 @@ const INK_FOR_ZONE: Record<Zone, string> = {
   cave: "#9fb4c9",
 };
 
+// Drawing a glyph on literally every cell of a contiguous patch is what reads
+// as printed wallpaper rather than a hand-scattered illustration --- thinning
+// each kind down, with gaps that show the plain colour wash between icons, is
+// what actually breaks the grid read (blending colour alone wasn't enough).
+const GLYPH_DENSITY: Partial<Record<Cell["terrain"], number>> = {
+  treeClump: 0.58,
+  tuft: 0.45,
+  rock: 0.5,
+  driftwood: 0.4,
+  rubble: 0.45,
+  mist: 0.55,
+  bones: 0.65,
+  mound: 0.65,
+};
+
+function glyphDensity(terrain: Cell["terrain"]): number {
+  return GLYPH_DENSITY[terrain] ?? 1;
+}
+
 // Draws blank parchment everywhere, then each visible cell that has started
 // (or finished) revealing --- a pen-stroke sketch first, a colour wash after.
 export function drawMap(
@@ -103,35 +122,46 @@ function drawCell(
   t: number,
 ): void {
   const ink = INK_FOR_ZONE[cell.zone];
+  // Same per-cell jitter/skip decisions feed both the sketch and wash phases,
+  // so a cell's glyph doesn't relocate or pop into existence when the reveal
+  // animation crosses the sketch/wash boundary.
+  const showGlyph = pseudoRandom(cell.seed, 503) < glyphDensity(cell.terrain);
+  const glyphJitterX = (pseudoRandom(cell.seed, 501) - 0.5) * size * 0.55;
+  const glyphJitterY = (pseudoRandom(cell.seed, 502) - 0.5) * size * 0.55;
 
   if (t <= SKETCH_PHASE_END) {
+    if (!showGlyph) return;
     ctx.save();
     ctx.globalAlpha = t / SKETCH_PHASE_END;
     ctx.strokeStyle = ink;
     ctx.lineWidth = 1.2;
-    drawTerrainGlyph(ctx, cell, x, y, size, false);
+    drawTerrainGlyph(ctx, cell, x + glyphJitterX, y + glyphJitterY, size, false);
     ctx.restore();
     return;
   }
 
-  // Blending each cell's colour with its neighbours', and painting an
-  // oversized irregular blob instead of an axis-aligned rect, is what turns
-  // a grid of flat-coloured tiles into something reading as continuous
-  // painted terrain --- the two together, not either alone.
+  // Blending each cell's colour with its neighbours', painting an oversized
+  // irregular blob instead of an axis-aligned rect, and jittering that blob's
+  // centre and radius off the grid --- three effects stacked, since colour
+  // blending alone still left every blob edge landing on the same lattice.
   const washAlpha = (t - SKETCH_PHASE_END) / (1 - SKETCH_PHASE_END);
   const blended = blendedTerrainColor(map, col, row);
+  const blobJitterX = (pseudoRandom(cell.seed, 511) - 0.5) * size * 0.4;
+  const blobJitterY = (pseudoRandom(cell.seed, 512) - 0.5) * size * 0.4;
   ctx.save();
   ctx.globalAlpha = washAlpha;
   ctx.fillStyle = shadeForZone(blended, cell.zone);
-  drawTerrainBlob(ctx, x + size / 2, y + size / 2, size, cell.seed);
+  drawTerrainBlob(ctx, x + size / 2 + blobJitterX, y + size / 2 + blobJitterY, size, cell.seed);
   ctx.fill();
   ctx.restore();
 
-  ctx.save();
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.2;
-  drawTerrainGlyph(ctx, cell, x, y, size, true);
-  ctx.restore();
+  if (showGlyph) {
+    ctx.save();
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 1.2;
+    drawTerrainGlyph(ctx, cell, x + glyphJitterX, y + glyphJitterY, size, true);
+    ctx.restore();
+  }
 }
 
 const NEIGHBOR_OFFSETS: Array<[number, number]> = [
@@ -184,7 +214,7 @@ function pseudoRandom(seed: number, i: number): number {
 // a little, which is what removes the hard seams a fillRect grid always has.
 function drawTerrainBlob(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, seed: number): void {
   const points = 7;
-  const baseRadius = size * 0.64;
+  const baseRadius = size * (0.56 + 0.28 * pseudoRandom(seed, 513));
   ctx.beginPath();
   for (let i = 0; i <= points; i++) {
     const angle = (i / points) * Math.PI * 2;

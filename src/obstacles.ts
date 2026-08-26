@@ -107,6 +107,7 @@ function collectProtectedPoints(layout: WorldLayout): Vec2[] {
     ...layout.fragmentPositions,
     ...layout.coinPositions,
     ...layout.gemPositions,
+    ...layout.trapPositions,
     ...layout.skeletonHomes,
     ...layout.crabAmbushPoints,
     ...layout.ghostSpawnPoints,
