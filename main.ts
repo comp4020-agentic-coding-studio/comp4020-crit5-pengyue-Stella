@@ -24,6 +24,8 @@ import { drawShip, drawShipArrow } from "./src/render/ship.ts";
 import { drawFragments, drawPickups } from "./src/render/pickups.ts";
 import { drawEnemies } from "./src/render/enemies.ts";
 import { drawEndScreen, drawScoreHud } from "./src/render/hud.ts";
+import { CALLOUT_DURATION, drawCallout } from "./src/render/callout.ts";
+import type { Vec2 } from "./src/types.ts";
 import { drawChaseVignette, drawSightVignette } from "./src/render/vignette.ts";
 
 function requireCanvas(): HTMLCanvasElement {
@@ -91,6 +93,24 @@ let playerInCave = false;
 let sightRadiusForRender = SIGHT_RADIUS;
 let terminalEnteredAt = 0;
 const CHASE_NOTICE_RADIUS = 260;
+
+// First-encounter name-tags --- a brief label the first time each kind of
+// danger is actually seen, never control/how-to-play text. Keyed by kind (or
+// a single flag for the one-off hazards) so each fires exactly once per run.
+interface ActiveCallout {
+  pos: Vec2;
+  text: string;
+  timer: number;
+}
+const ENEMY_CALLOUT_LABEL: Record<string, string> = {
+  skeleton: "Skeleton",
+  crab: "Sand Crab",
+  ghost: "Ghost Pirate",
+};
+let activeCallouts: ActiveCallout[] = [];
+const introducedEnemyKinds = new Set<string>();
+let trapIntroduced = false;
+let cursedIntroduced = false;
 
 const SPEED_BOOST_MULTIPLIER = 1.6;
 // Ignores input for a beat after entering a terminal state --- a key held
@@ -245,6 +265,30 @@ function update(now: number, dt: number): void {
   if (startled) visual.alertBeat = ALERT_BEAT_DURATION;
   visual.chased = nearbyChase;
 
+  for (const enemy of enemies) {
+    if (enemy.kind === "ghost" && !playerInCave) continue;
+    if (introducedEnemyKinds.has(enemy.kind)) continue;
+    if (distanceTo(enemy.pos) > sightRadius) continue;
+    introducedEnemyKinds.add(enemy.kind);
+    activeCallouts.push({ pos: enemy.pos, text: ENEMY_CALLOUT_LABEL[enemy.kind], timer: CALLOUT_DURATION });
+  }
+  if (!trapIntroduced) {
+    const anticipating = traps.find((t) => t.state === "anticipating");
+    if (anticipating) {
+      trapIntroduced = true;
+      activeCallouts.push({ pos: anticipating.pos, text: "Trap!", timer: CALLOUT_DURATION });
+    }
+  }
+  if (!cursedIntroduced) {
+    const cursedPickup = pickups.find((p) => p.kind === "cursed" && !p.collected);
+    if (cursedPickup && distanceTo(cursedPickup.pos) <= sightRadius) {
+      cursedIntroduced = true;
+      activeCallouts.push({ pos: cursedPickup.pos, text: "Cursed Hoard", timer: CALLOUT_DURATION });
+    }
+  }
+  for (const callout of activeCallouts) callout.timer -= dt;
+  activeCallouts = activeCallouts.filter((c) => c.timer > 0);
+
   // checkLoss runs last so a fatal touch doesn't leave one extra reveal/trail
   // tick recorded past the moment of contact. A triggered trap is a hazard
   // circle exactly like an enemy --- folded into the same list rather than
@@ -307,6 +351,11 @@ function resetGame(): void {
   playerInCave = false;
   sightRadiusForRender = SIGHT_RADIUS;
   terminalEnteredAt = 0;
+
+  activeCallouts = [];
+  introducedEnemyKinds.clear();
+  trapIntroduced = false;
+  cursedIntroduced = false;
 }
 
 function render(now: number): void {
@@ -327,6 +376,7 @@ function render(now: number): void {
   drawEnemies(ctx, enemies, now, playerInCave);
   drawPirate(ctx, visual);
   drawSwordSwing(ctx, { x: player.x, y: player.y }, player.facing, combat.swingTimer);
+  for (const callout of activeCallouts) drawCallout(ctx, callout.pos, callout.text, callout.timer);
   ctx.restore();
 
   drawSightVignette(
