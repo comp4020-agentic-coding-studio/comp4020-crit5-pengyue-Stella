@@ -81,6 +81,33 @@ checkpoint by checkpoint, each gated on a green `pnpm check` before landing.
    claims, not proof — looking at the actual rendered page is a different
    and necessary kind of verification.
 
+5. **Redesigning the pirate as a real character, then adding combat, off the
+   same playtest.** The same first playtest that found the restart/terrain/
+   density bugs above also judged the player sprite itself as flat placeholder
+   geometry and the loss condition ("just touch anything and die") as a dead
+   end with no way to fight back. The pirate became a chibi character —
+   oversized hat, small body, bounce on run, a startle hop on alert, a pose for
+   being chased — via `PlayerVisualState`
+   ([`ff1381f`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/ff1381f)),
+   and a short-range sword swing (`src/combat.ts`) was wired into the existing
+   enemy FSM as a new `"defeated"` state rather than a separate kill system —
+   an enemy knocked back stays excluded from the loss check while down, then
+   walks itself home via the FSM's own `"return"` state once stunned
+   ([`7da1602`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/7da1602)).
+   That combat commit is also where the "look at rendered pixels, don't trust
+   the commit message" lesson from moment 4 paid off a second time: a scripted
+   Playwright approach kept dying before a swing ever landed, and screenshot
+   timing alone couldn't tell me why. The fix was a temporary debug hook
+   exposing live player/enemy state to the test script (added, used to verify,
+   then removed before committing) — it showed the skeleton's actual
+   detection radius was smaller than I'd assumed and that it holds position
+   during its alert telegraph rather than already closing distance, which the
+   screenshot timing alone had made look the opposite way. With real numbers
+   instead of a guess, the same approach landed a confirmed hit: swing lands
+   at 33px (inside the 56px range), the skeleton flips to `"defeated"` with a
+   visible knockback displacement, the player survives, and it's back to
+   `"return"` and walking home about 1.6s later.
+
 ## What still needs a human
 
 - **Real playtesting by someone who hasn't seen the code.** The pass above
