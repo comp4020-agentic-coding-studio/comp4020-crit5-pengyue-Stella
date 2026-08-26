@@ -3,12 +3,15 @@ import { updateCamera } from "./src/camera.ts";
 import { advanceReveal, createMap, revealAround, worldSize } from "./src/map.ts";
 import { createTrail, maybeRecordPoint } from "./src/trail.ts";
 import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS } from "./src/world.ts";
+import { collectNearby, createPickups } from "./src/pickups.ts";
 import { drawMap } from "./src/render/map.ts";
 import { drawTrail } from "./src/render/trail.ts";
-import { drawPirate } from "./src/render/player.ts";
+import { drawPirate, PICKUP_PULSE_DURATION } from "./src/render/player.ts";
 import type { PlayerVisualState } from "./src/render/player.ts";
 import { drawJoystick } from "./src/render/joystick.ts";
 import { drawShip } from "./src/render/ship.ts";
+import { drawPickups } from "./src/render/pickups.ts";
+import { drawScoreHud } from "./src/render/hud.ts";
 
 function requireCanvas(): HTMLCanvasElement {
   const el = document.querySelector<HTMLCanvasElement>("#game");
@@ -38,6 +41,8 @@ const player = {
   x: layout.shipPos.x,
   y: layout.shipPos.y,
   facing: 1 as 1 | -1,
+  torchBonus: 0,
+  speedTimer: 0,
 };
 
 const visual: PlayerVisualState = {
@@ -46,10 +51,15 @@ const visual: PlayerVisualState = {
   moving: false,
   animTime: 0,
   hatLag: { x: 0, y: 0 },
+  pickupPulse: 0,
 };
 
 const trail = createTrail(player.x, player.y);
 const input = new InputController(canvas);
+const pickups = createPickups(layout);
+let score = 0;
+
+const SPEED_BOOST_MULTIPLIER = 1.6;
 
 function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -78,9 +88,13 @@ function update(now: number, dt: number): void {
   const move = input.getMovement();
   const moving = move.x !== 0 || move.y !== 0;
 
+  player.speedTimer = Math.max(0, player.speedTimer - dt);
+  visual.pickupPulse = Math.max(0, visual.pickupPulse - dt);
+  const speed = PLAYER_SPEED * (player.speedTimer > 0 ? SPEED_BOOST_MULTIPLIER : 1);
+
   if (moving) {
-    player.x = clamp(player.x + move.x * PLAYER_SPEED * dt, 0, world.width);
-    player.y = clamp(player.y + move.y * PLAYER_SPEED * dt, 0, world.height);
+    player.x = clamp(player.x + move.x * speed * dt, 0, world.width);
+    player.y = clamp(player.y + move.y * speed * dt, 0, world.height);
     if (move.x !== 0) player.facing = move.x > 0 ? 1 : -1;
   }
 
@@ -96,9 +110,18 @@ function update(now: number, dt: number): void {
   visual.hatLag.x += (lagTargetX - visual.hatLag.x) * lerp;
   visual.hatLag.y += (lagTargetY - visual.hatLag.y) * lerp;
 
-  revealAround(map, player.x, player.y, SIGHT_RADIUS, now);
+  const sightRadius = SIGHT_RADIUS + player.torchBonus;
+  revealAround(map, player.x, player.y, sightRadius, now);
   advanceReveal(map, now);
   maybeRecordPoint(trail, player.x, player.y);
+
+  const effect = collectNearby(pickups, { x: player.x, y: player.y });
+  if (effect.scoreDelta !== 0 || effect.torchBonus > 0 || effect.speedTimerSeconds > 0) {
+    score += effect.scoreDelta;
+    player.torchBonus += effect.torchBonus;
+    player.speedTimer += effect.speedTimerSeconds;
+    visual.pickupPulse = PICKUP_PULSE_DURATION;
+  }
 }
 
 function render(now: number): void {
@@ -109,10 +132,12 @@ function render(now: number): void {
   ctx.translate(-camera.x, -camera.y);
   drawMap(ctx, map, now, camera.x, camera.y, viewport.width, viewport.height);
   drawShip(ctx, layout.shipPos, { beacon: false, now });
+  drawPickups(ctx, pickups, now);
   drawTrail(ctx, trail);
   drawPirate(ctx, visual);
   ctx.restore();
 
+  drawScoreHud(ctx, score);
   drawJoystick(ctx, input.joystick);
 }
 
