@@ -16,7 +16,7 @@ import { drawJoystick } from "./src/render/joystick.ts";
 import { drawShip, drawShipArrow } from "./src/render/ship.ts";
 import { drawFragments, drawPickups } from "./src/render/pickups.ts";
 import { drawEnemies } from "./src/render/enemies.ts";
-import { drawScoreHud } from "./src/render/hud.ts";
+import { drawEndScreen, drawScoreHud } from "./src/render/hud.ts";
 import { drawSightVignette } from "./src/render/vignette.ts";
 
 function requireCanvas(): HTMLCanvasElement {
@@ -69,9 +69,9 @@ const visual: PlayerVisualState = {
 
 const trail = createTrail(player.x, player.y);
 const input = new InputController(canvas);
-const pickups = createPickups(layout);
-const fragments = createFragments(layout);
-const enemies = createEnemies(layout);
+let pickups = createPickups(layout);
+let fragments = createFragments(layout);
+let enemies = createEnemies(layout);
 let score = 0;
 let status: ProgressStatus = "explore";
 let fragmentsCollected = 0;
@@ -79,9 +79,14 @@ let xRevealedAt = 0;
 let previousAlertIds = new Set<string>();
 let playerInCave = false;
 let sightRadiusForRender = SIGHT_RADIUS;
+let terminalEnteredAt = 0;
 const CHASE_NOTICE_RADIUS = 260;
 
 const SPEED_BOOST_MULTIPLIER = 1.6;
+// Ignores input for a beat after entering a terminal state --- a key held
+// into the fatal collision keeps firing OS key-repeat keydown events, which
+// would otherwise dismiss the lose screen before the player registers it.
+const RESTART_ARM_DELAY = 500;
 
 function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -107,7 +112,14 @@ function frame(now: number): void {
 }
 
 function update(now: number, dt: number): void {
-  if (status === "won" || status === "lost") return;
+  if (status === "won" || status === "lost") {
+    if (now - terminalEnteredAt < RESTART_ARM_DELAY) {
+      input.clearActivation();
+    } else if (input.consumeActivation()) {
+      resetGame();
+    }
+    return;
+  }
 
   const move = input.getMovement();
   const moving = move.x !== 0 || move.y !== 0;
@@ -167,7 +179,12 @@ function update(now: number, dt: number): void {
     status = reachX(status, fragmentsCollected);
   }
   if (status === "escaping" && distanceTo(layout.shipPos) <= SHIP_REACH_RADIUS) {
-    status = reachShip(status);
+    const next = reachShip(status);
+    if (next !== status) {
+      terminalEnteredAt = now;
+      input.clearActivation();
+    }
+    status = next;
   }
 
   updateEnemies(enemies, {
@@ -199,11 +216,56 @@ function update(now: number, dt: number): void {
 
   // checkLoss runs last so a fatal touch doesn't leave one extra reveal/trail
   // tick recorded past the moment of contact.
-  status = checkLoss({
+  const afterLoss = checkLoss({
     status,
     player: { pos: { x: player.x, y: player.y }, radius: PLAYER_COLLISION_RADIUS },
     enemies: enemies.map((enemy) => ({ pos: enemy.pos, radius: ENEMY_COLLISION_RADIUS })),
   });
+  if (afterLoss !== status) {
+    terminalEnteredAt = now;
+    input.clearActivation();
+  }
+  status = afterLoss;
+}
+
+// Reassigns every mutable module binding back to a fresh run --- pickups,
+// fragments and enemies are recreated from layout; player/visual/trail are
+// mutated in place since nothing external holds a reference to a *different*
+// object for them. Deliberately leaves the map's fog-of-war untouched: it
+// restarts the run, not the exploration record, and re-deriving createMap
+// would also reshuffle the terrain layout underfoot.
+function resetGame(): void {
+  player.x = layout.shipPos.x;
+  player.y = layout.shipPos.y;
+  player.facing = 1;
+  player.torchBonus = 0;
+  player.speedTimer = 0;
+
+  visual.pos.x = player.x;
+  visual.pos.y = player.y;
+  visual.facing = 1;
+  visual.moving = false;
+  visual.animTime = 0;
+  visual.hatLag.x = 0;
+  visual.hatLag.y = 0;
+  visual.pickupPulse = 0;
+  visual.alertBeat = 0;
+  visual.chased = false;
+
+  trail.points = createTrail(player.x, player.y).points;
+
+  pickups = createPickups(layout);
+  fragments = createFragments(layout);
+  enemies = createEnemies(layout);
+
+  score = 0;
+  status = "explore";
+  fragmentsCollected = 0;
+  xRevealedAt = 0;
+  previousAlertIds = new Set<string>();
+  playerInCave = false;
+  sightRadiusForRender = SIGHT_RADIUS;
+  terminalEnteredAt = 0;
 }
 
 function render(now: number): void {
@@ -237,6 +299,9 @@ function render(now: number): void {
   }
   drawScoreHud(ctx, score);
   drawJoystick(ctx, input.joystick);
+  if (status === "won" || status === "lost") {
+    drawEndScreen(ctx, viewport, status === "won", score);
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {

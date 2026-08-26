@@ -24,6 +24,11 @@ export interface Joystick {
 export class InputController {
   private pressed = new Set<string>();
   private pointerId: number | null = null;
+  // Edge-triggered "was something just pressed" signal for menu-style input
+  // (restart), distinct from getMovement()'s held-state vector --- a tap
+  // without a drag never clears the joystick's own dead zone, so restart
+  // needs its own primitive rather than reusing movement.
+  private activationPending = false;
   readonly joystick: Joystick = { active: false, anchor: { x: 0, y: 0 }, current: { x: 0, y: 0 } };
 
   constructor(private target: HTMLElement) {
@@ -39,6 +44,21 @@ export class InputController {
     const keys = this.keyboardVector();
     if (keys.x !== 0 || keys.y !== 0) return keys;
     return this.joystickVector();
+  }
+
+  // Returns true at most once per press, then clears --- callers poll this
+  // once per frame rather than receiving a callback.
+  consumeActivation(): boolean {
+    if (!this.activationPending) return false;
+    this.activationPending = false;
+    return true;
+  }
+
+  // Drains a pending press without acting on it --- used during a restart
+  // arm-delay so a key still held from the moment of the fatal collision
+  // can't be mistaken for a fresh press once listening begins.
+  clearActivation(): void {
+    this.activationPending = false;
   }
 
   private keyboardVector(): Vec2 {
