@@ -21,7 +21,13 @@ const SCORE_BY_KIND: Record<PickupKind, number> = {
 export const TORCH_SIGHT_BONUS = 60;
 export const SPEED_BOOST_SECONDS = 6;
 
-export const ALERT_PULSE_RADIUS = 420;
+// Traced against the actual world layout: at 420 the pulse only ever reached
+// the cave's own crab/ghosts (3 of 7 enemies) --- both skeleton homes sit
+// 1400-1500px away, so grabbing the "big score bonus" cursed treasure never
+// woke the guards roaming the open world at all. Widened to cover the
+// farthest enemy home so the trap reads as "you woke the whole map", not
+// just the cave it was found in.
+export const ALERT_PULSE_RADIUS = 1600;
 
 export function createPickups(layout: WorldLayout): Pickup[] {
   const pickups: Pickup[] = [];
