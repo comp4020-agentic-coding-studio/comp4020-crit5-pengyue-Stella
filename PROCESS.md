@@ -174,6 +174,31 @@ checkpoint by checkpoint, each gated on a green `pnpm check` before landing.
      legible rather than assumed legible from source code.
      [`e60a077`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/e60a077)
 
+8. **Finding a structural bug by tracing what "1-hit sneak kill" actually
+   required, not just reading the code.** A later request asked for real
+   combat — HP instead of a single always-"defeated" knockdown, a defeat
+   score, hit-flash/shake, and denser, overlapping danger zones — and named
+   the exact hit counts: skeletons and ghosts take 2 hits, a crab caught
+   still buried takes 1. That last rule couldn't actually fire. `updateEnemies`
+   (which runs a crab's own proximity-triggered patrol→alert transition) runs
+   before the attack-processing block in `main.ts`'s frame loop, and
+   `CRAB_AMBUSH_RADIUS` (70px) was larger than `combat.ts`'s own
+   `ATTACK_RANGE` (56px) — so a player could never be within striking
+   distance of a buried crab without the crab having already noticed them on
+   that same frame. The "sneak kill while still patrol" reward was
+   unreachable in normal play, not just untested. Confirmed this by writing a
+   small isolated Playwright repro against a temporary debug hook
+   (`window.__debugState`/`__debugTeleportPlayer`, added, used, then removed
+   before committing) before changing anything, rather than guessing from the
+   constants alone. Fixed by shrinking the ambush radius to 40, opening a
+   real 40–56px sneak window, and verified end to end in-browser at both
+   marked viewports: keyboard and pointer/touch attacks landing hits and
+   respecting cooldown, a skeleton dying on its 2nd hit and getting pruned
+   after its fade, the crab sneak-kill actually landing, ghost vulnerability
+   holding on both the without-torch and with-torch branches, collision loss
+   still firing, and restart still producing a fresh run.
+   [`1fb3912`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/1fb3912)
+
 ## What still needs a human
 
 - **Real playtesting by someone who hasn't seen the code.** The pass above
