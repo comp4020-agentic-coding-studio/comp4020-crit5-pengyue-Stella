@@ -85,19 +85,6 @@ const ZONE_SPECS: ZoneClusterSpec[] = [
   },
 ];
 
-// mulberry32 --- placement has to be stable across reloads (and the
-// reachability test below only means something if it is), not literally
-// random each run.
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 function collectProtectedPoints(layout: WorldLayout): Vec2[] {
   return [
     layout.xPos,
@@ -158,12 +145,10 @@ function isClear(pos: Vec2, protectedPoints: Vec2[], shipPos: Vec2): boolean {
   return true;
 }
 
-// Fixed seed: obstacle placement is part of the world layout, not something
-// that should reshuffle underfoot between reloads or resets.
-const DEFAULT_SEED = 20260826;
-
-export function createObstacles(layout: WorldLayout, seed: number = DEFAULT_SEED): Obstacle[] {
-  const rng = mulberry32(seed);
+// Shares the same rng instance the rest of world generation is threaded
+// through (see worldgen.ts) --- placement varies with the layout it protects,
+// but a given seed still reproduces the exact same run.
+export function createObstacles(layout: WorldLayout, rng: () => number): Obstacle[] {
   const protectedPoints = collectProtectedPoints(layout);
   const obstacles: Obstacle[] = [];
   let nextId = 0;
@@ -224,4 +209,60 @@ export function isBlocked(pos: Vec2, radius: number, obstacles: Obstacle[]): boo
     if (dx * dx + dy * dy < minDist * minDist) return true;
   }
   return false;
+}
+
+// Coarse-grid flood fill from a start point --- the safety net against
+// obstacle clusters (placed at randomised anchors every run) accidentally
+// sealing off a fragment, the X, or the cursed treasure. A grid (not the real
+// player radius) because this only needs "is there some route", not the exact
+// clearance a body needs to fit through. Shared by worldgen.ts's own retry
+// loop and by obstacles.test.ts.
+export const GRID_STEP = 24;
+const PROBE_RADIUS = 12;
+
+export function reachableFrom(start: Vec2, obstacles: Obstacle[]): Set<string> {
+  const cols = Math.floor(WORLD_WIDTH / GRID_STEP);
+  const rows = Math.floor(WORLD_HEIGHT / GRID_STEP);
+  const key = (col: number, row: number): string => `${col},${row}`;
+
+  const startCol = Math.round(start.x / GRID_STEP);
+  const startRow = Math.round(start.y / GRID_STEP);
+
+  const visited = new Set<string>([key(startCol, startRow)]);
+  const queue: Array<[number, number]> = [[startCol, startRow]];
+  const deltas: Array<[number, number]> = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+
+  while (queue.length > 0) {
+    const [col, row] = queue.shift() as [number, number];
+    for (const [dc, dr] of deltas) {
+      const nc = col + dc;
+      const nr = row + dr;
+      if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+      const nk = key(nc, nr);
+      if (visited.has(nk)) continue;
+      const pos = { x: nc * GRID_STEP, y: nr * GRID_STEP };
+      if (isBlocked(pos, PROBE_RADIUS, obstacles)) continue;
+      visited.add(nk);
+      queue.push([nc, nr]);
+    }
+  }
+  return visited;
+}
+
+// Every generated run must remain completable --- worldgen.ts retries
+// placement until this passes, rather than trusting clearance radii alone to
+// guarantee it once obstacle clusters land at random anchors.
+export function isReachableWorld(layout: WorldLayout, obstacles: Obstacle[]): boolean {
+  const visited = reachableFrom(layout.shipPos, obstacles);
+  const targets = [layout.xPos, layout.cursedTreasurePos, ...layout.fragmentPositions];
+  return targets.every((target) => {
+    const col = Math.round(target.x / GRID_STEP);
+    const row = Math.round(target.y / GRID_STEP);
+    return visited.has(`${col},${row}`);
+  });
 }

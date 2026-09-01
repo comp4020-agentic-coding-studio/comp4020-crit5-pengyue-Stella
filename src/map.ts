@@ -43,9 +43,15 @@ const MOUND_RADIUS = 120;
 // scattering independent per-cell rolls into a checkerboard.
 const NOISE_SCALE = 4.5;
 
-export function createMap(cols: number, rows: number, cellSize: number, layout: WorldLayout): GameMap {
+export function createMap(
+  cols: number,
+  rows: number,
+  cellSize: number,
+  layout: WorldLayout,
+  rng: () => number,
+): GameMap {
   const cells: Cell[] = [];
-  const noiseSeed = Math.random() * 1000;
+  const noiseSeed = rng() * 1000;
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const cx = col * cellSize + cellSize / 2;
@@ -59,7 +65,7 @@ export function createMap(cols: number, rows: number, cellSize: number, layout: 
         zone,
         revealStart: null,
         revealed: false,
-        seed: Math.random(),
+        seed: rng(),
       });
     }
   }

@@ -1,8 +1,9 @@
 import { InputController } from "./src/input.ts";
 import { offscreenArrow, updateCamera } from "./src/camera.ts";
-import { advanceReveal, createMap, revealAround, worldSize } from "./src/map.ts";
+import { advanceReveal, revealAround, worldSize } from "./src/map.ts";
 import { createTrail, maybeRecordPoint } from "./src/trail.ts";
-import { buildWorldLayout, WORLD_CELL_SIZE, WORLD_COLS, WORLD_ROWS, zoneAt } from "./src/world.ts";
+import { zoneAt } from "./src/world.ts";
+import { generateWorld } from "./src/worldgen.ts";
 import { ALERT_PULSE_RADIUS, collectNearby, createPickups } from "./src/pickups.ts";
 import { collectFragments, createFragments } from "./src/fragments.ts";
 import { applySwordHit, createEnemies, triggerAlertPulse, updateEnemies } from "./src/enemies.ts";
@@ -11,7 +12,7 @@ import { ATTACK_KNOCKBACK_SPEED, createCombatState, isWithinAttackArc, tryAttack
 import { drawSwordSwing } from "./src/render/combat.ts";
 import { drawAttackButton } from "./src/render/attackButton.ts";
 import type { ProgressStatus } from "./src/game-logic.ts";
-import { createObstacles, resolveObstacleCollision } from "./src/obstacles.ts";
+import { resolveObstacleCollision } from "./src/obstacles.ts";
 import { createTraps, trapHitCircles, updateTraps } from "./src/traps.ts";
 import { drawMap, drawXMarker } from "./src/render/map.ts";
 import { drawObstacles } from "./src/render/obstacles.ts";
@@ -53,10 +54,13 @@ const ALERT_NOTICE_RADIUS = 220;
 const X_REACH_RADIUS = 30;
 const SHIP_REACH_RADIUS = 60;
 
-const layout = buildWorldLayout();
-const map = createMap(WORLD_COLS, WORLD_ROWS, WORLD_CELL_SIZE, layout);
-const world = worldSize(map);
-const obstacles = createObstacles(layout);
+// Regenerated wholesale on every restart (see resetGame) --- a fresh run
+// means a fresh world, not just fresh entities placed on the same one.
+const initialWorld = generateWorld(Date.now());
+let layout = initialWorld.layout;
+let map = initialWorld.map;
+let obstacles = initialWorld.obstacles;
+let world = worldSize(map);
 
 const player = {
   x: layout.shipPos.x,
@@ -310,18 +314,27 @@ function update(now: number, dt: number): void {
   status = afterLoss;
 }
 
-// Reassigns every mutable module binding back to a fresh run --- pickups,
-// fragments and enemies are recreated from layout; player/visual/trail are
-// mutated in place since nothing external holds a reference to a *different*
-// object for them. Deliberately leaves the map's fog-of-war untouched: it
-// restarts the run, not the exploration record, and re-deriving createMap
-// would also reshuffle the terrain layout underfoot.
+// A restart is a completely fresh run, not just fresh entities on the same
+// map: the whole world (layout, obstacles, terrain/fog-of-war) is regenerated
+// first, so explored/revealed state, obstacle placement, and every point of
+// interest are all different from the run that just ended. Pickups, fragments
+// and enemies are then recreated from the *new* layout; player/visual/trail
+// are mutated in place since nothing external holds a reference to a
+// *different* object for them.
 function resetGame(): void {
+  const fresh = generateWorld(Date.now());
+  layout = fresh.layout;
+  map = fresh.map;
+  obstacles = fresh.obstacles;
+  world = worldSize(map);
+
   player.x = layout.shipPos.x;
   player.y = layout.shipPos.y;
   player.facing = 1;
   player.torchBonus = 0;
   player.speedTimer = 0;
+
+  revealAround(map, player.x, player.y, SIGHT_RADIUS, performance.now());
 
   visual.pos.x = player.x;
   visual.pos.y = player.y;

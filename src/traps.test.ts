@@ -8,11 +8,12 @@ import {
   trapHitCircles,
   updateTraps,
 } from "./traps.ts";
+import { mulberry32 } from "./rng.ts";
 import { buildWorldLayout } from "./world.ts";
 
 describe("createTraps", () => {
   it("creates exactly one dormant trap per configured position", () => {
-    const layout = buildWorldLayout();
+    const layout = buildWorldLayout(mulberry32(1));
     const traps = createTraps(layout);
     expect(traps).toHaveLength(layout.trapPositions.length);
     for (const trap of traps) expect(trap.state).toBe("dormant");
@@ -21,7 +22,7 @@ describe("createTraps", () => {
 
 describe("updateTraps", () => {
   it("stays dormant while the player is outside the arm radius", () => {
-    const layout = buildWorldLayout();
+    const layout = buildWorldLayout(mulberry32(1));
     const traps = createTraps(layout);
     const far = { x: traps[0].pos.x + TRAP_ARM_RADIUS * 5, y: traps[0].pos.y };
 
@@ -32,7 +33,7 @@ describe("updateTraps", () => {
   });
 
   it("telegraphs, strikes, cools down, then re-arms as the player stands on it", () => {
-    const layout = buildWorldLayout();
+    const layout = buildWorldLayout(mulberry32(1));
     const traps = createTraps(layout);
     const trap = traps[0];
     const atTrap = { ...trap.pos };
@@ -54,7 +55,7 @@ describe("updateTraps", () => {
   });
 
   it("does not re-check for an escape once anticipation has started", () => {
-    const layout = buildWorldLayout();
+    const layout = buildWorldLayout(mulberry32(1));
     const traps = createTraps(layout);
     const trap = traps[0];
     const atTrap = { ...trap.pos };
