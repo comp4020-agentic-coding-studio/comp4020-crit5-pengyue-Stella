@@ -131,6 +131,49 @@ checkpoint by checkpoint, each gated on a green `pnpm check` before landing.
    skeleton, fades after ~1.6–1.8s on its own, and the player survives the
    whole encounter.
 
+7. **A second playtest round, closed out in three gated groups instead of one
+   dump.** A later playtest raised four distinct complaints — restart wasn't
+   really fresh, every run had the same map, the win/loss progression was
+   illegible moment-to-moment, and the pirate sprite itself was weaker than an
+   earlier version — and each became its own commit, gated on a green
+   `pnpm check` and genuine in-browser verification before landing, rather
+   than one large diff at the end:
+   - **Restart + map variation**: `resetGame()` used to leave the layout,
+     obstacles, and fog-of-war untouched, so a "new run" was cosmetically new
+     entities on the same map. `src/rng.ts` (seeded mulberry32) lets
+     `buildWorldLayout()` rejection-sample every point of interest per zone
+     while keeping the band/cave/ship structure fixed, and `worldgen.ts`'s
+     `generateWorld(seed)` retries with a derived seed (up to 12 attempts, with
+     a no-obstacle fallback) against a real flood-fill reachability check, so
+     every generated run is provably completable, not just probably.
+     [`6682d47`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/6682d47)
+   - **Win/loss progression**: the escape climax already existed (enemy
+     aggression boost, trail lifeline, ship beacon), but nothing on screen told
+     the player *why* — no fragment counter, no announcement when the X
+     revealed or when the treasure was secured, and reaching X granted no
+     points despite a doc comment claiming it did. Added a fragment-progress
+     HUD, one-shot story banners on each transition, an X-direction arrow
+     (reusing the same offscreen-arrow math already built for the ship), and
+     wired the missing score bonus. Playwright caught a real bug this pass:
+     the banner's fixed font size overflowed both edges of the 390px phone
+     viewport, invisible at 1920×1080.
+     [`03bda4d`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/03bda4d)
+   - **Pirate redesign**: the brief asked for silhouette-first, then cute —
+     large hat, eye patch, small coat/vest, boots, oversized head. Replaced
+     the old bandana with a bicorne wide enough to be unambiguous at gameplay
+     scale, swapped one eye for a patch with a strap, rebuilt the torso as a
+     vest with coat-tails over the old plain ellipse, and added a
+     `carryingTreasure` animation state (two-handed pose plus a rendered
+     chest) for the escape phase. Verifying this one needed a step beyond the
+     usual debug-hook teleport: the chibi character is only 40–60px tall in a
+     full-viewport screenshot, too small to actually judge a hat shape or a
+     patch strap by eye. Added a `screenPos` field to the debug hook (backed
+     by a `lastCamera` capture in `render()`, both removed before committing)
+     so Playwright could clip a precise, tightly-cropped screenshot centered
+     on the character — the only way any of this was actually confirmed
+     legible rather than assumed legible from source code.
+     [`e60a077`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-pengyue-Stella/commit/e60a077)
+
 ## What still needs a human
 
 - **Real playtesting by someone who hasn't seen the code.** The pass above
