@@ -79,6 +79,7 @@ const visual: PlayerVisualState = {
   pickupPulse: 0,
   alertBeat: 0,
   chased: false,
+  carryingTreasure: false,
 };
 
 const trail = createTrail(player.x, player.y);
@@ -335,6 +336,7 @@ function update(now: number, dt: number): void {
     input.clearActivation();
   }
   status = afterLoss;
+  visual.carryingTreasure = status === "escaping";
 }
 
 // A restart is a completely fresh run, not just fresh entities on the same
@@ -369,6 +371,7 @@ function resetGame(): void {
   visual.pickupPulse = 0;
   visual.alertBeat = 0;
   visual.chased = false;
+  visual.carryingTreasure = false;
 
   trail.points = createTrail(player.x, player.y).points;
 

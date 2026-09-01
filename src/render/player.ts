@@ -6,7 +6,7 @@ export interface PlayerVisualState {
   moving: boolean;
   /** seconds, accumulates every frame; drives the bob/swing phase */
   animTime: number;
-  /** bandana offset, lerped toward a target each frame so it lags behind the body */
+  /** hat offset, lerped toward a target each frame so it lags behind the body */
   hatLag: Vec2;
   /** seconds remaining on a "just picked something up" hop; 0 when idle */
   pickupPulse: number;
@@ -14,6 +14,8 @@ export interface PlayerVisualState {
   alertBeat: number;
   /** true while any enemy is actively chasing within notice range */
   chased: boolean;
+  /** true while escaping with the final treasure --- swaps the run pose to a two-handed carry */
+  carryingTreasure: boolean;
 }
 
 export const PICKUP_PULSE_DURATION = 0.35;
@@ -21,26 +23,38 @@ export const ALERT_BEAT_DURATION = 0.4;
 
 const IDLE_FREQ = 1.6;
 const RUN_FREQ = 9;
-const CHASE_FREQ_BOOST = 1.3;
-const CHASE_BOB_BOOST = 1.35;
+const CHASE_FREQ_BOOST = 1.45;
+const CHASE_BOB_BOOST = 1.55;
+const CHASE_ARM_BOOST = 1.3;
 
-// Two round eyes stay centred on the head rather than mirroring with facing
-// --- a small front-on "face" reads far more expressive at this size than a
-// profile eye would, while the limbs/hat/lean below still fully mirror, so
-// direction of travel is unambiguous from the body alone.
+// A front-on face reads far more expressive at this size than a profile eye
+// would, while the limbs/hat/lean below still fully mirror with facing, so
+// direction of travel is unambiguous from the body alone. One eye stays a
+// plain patch (the clearest single "pirate" cue after the hat), which also
+// means the emotive eye-widen/brow-lift below only has one eye to animate.
 function drawFace(ctx: CanvasRenderingContext2D, alertProgress: number, worried: boolean, joyful: boolean): void {
   const eyeScale = 1 + alertProgress * 0.5;
   const eyeY = -17 - alertProgress * 1.5;
-  for (const ex of [-3.6, 3.6]) {
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.ellipse(ex, eyeY, 2.6 * eyeScale, 3 * eyeScale, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#241a12";
-    ctx.beginPath();
-    ctx.arc(ex, eyeY + 0.4, 1.3 * eyeScale, 0, Math.PI * 2);
-    ctx.fill();
-  }
+
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.ellipse(3.6, eyeY, 2.6 * eyeScale, 3 * eyeScale, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#241a12";
+  ctx.beginPath();
+  ctx.arc(3.6, eyeY + 0.4, 1.3 * eyeScale, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#1a1310";
+  ctx.beginPath();
+  ctx.ellipse(-3.6, -17, 3.1, 3.6, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#1a1310";
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(-6.6, -19.5);
+  ctx.lineTo(9, -22);
+  ctx.stroke();
 
   ctx.strokeStyle = "#241a12";
   ctx.lineWidth = 1.1;
@@ -129,7 +143,7 @@ function drawSparkles(ctx: CanvasRenderingContext2D, progress: number): void {
 // no image assets. Direction reads from the mirrored body/limbs/hat, not the
 // (deliberately front-facing) eyes; state reads from face + gesture, not text.
 export function drawPirate(ctx: CanvasRenderingContext2D, state: PlayerVisualState): void {
-  const { pos, facing, moving, animTime, hatLag, pickupPulse, alertBeat, chased } = state;
+  const { pos, facing, moving, animTime, hatLag, pickupPulse, alertBeat, chased, carryingTreasure } = state;
   const chaseBoost = moving && chased;
   const celebrating = pickupPulse > 0;
   const freq = (moving ? RUN_FREQ : IDLE_FREQ) * (chaseBoost ? CHASE_FREQ_BOOST : 1);
@@ -140,7 +154,7 @@ export function drawPirate(ctx: CanvasRenderingContext2D, state: PlayerVisualSta
   const pickupHop = celebrating ? Math.sin(pickupProgress * Math.PI) * 9 : 0;
   const alertProgress = alertBeat / ALERT_BEAT_DURATION;
   const alertShake = alertBeat > 0 ? Math.sin(alertProgress * Math.PI * 4) * 3 * alertProgress : 0;
-  const lean = moving ? (chaseBoost ? 0.22 : 0.13) : 0;
+  const lean = moving ? (chaseBoost ? 0.3 : 0.13) : 0;
 
   ctx.save();
   ctx.translate(pos.x + alertShake, pos.y + bob - pickupHop);
@@ -161,35 +175,87 @@ export function drawPirate(ctx: CanvasRenderingContext2D, state: PlayerVisualSta
   ctx.fillStyle = "#1c1712";
   ctx.fillRect(-5 + legSwing * 0.35, 11.5, 4, 2.5);
   ctx.fillRect(1 - legSwing * 0.35, 11.5, 4, 2.5);
+  ctx.fillStyle = "#8a6b42";
+  ctx.fillRect(-5 + legSwing * 0.35, 11.5, 4, 1);
+  ctx.fillRect(1 - legSwing * 0.35, 11.5, 4, 1);
 
-  ctx.fillStyle = "#7a2e2e";
+  // Coat-tail flaps hang from the vest's waist and swing opposite the legs ---
+  // drawn before the torso/vest so they read as *behind* the body, not on it.
+  ctx.fillStyle = "#3a2412";
+  ctx.beginPath();
+  ctx.moveTo(-4.5, 6);
+  ctx.quadraticCurveTo(-6 + legSwing * 0.3, 12, -2.5 + legSwing * 0.4, 14);
+  ctx.lineTo(-1.5, 7);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(4.5, 6);
+  ctx.quadraticCurveTo(6 - legSwing * 0.3, 12, 2.5 - legSwing * 0.4, 14);
+  ctx.lineTo(1.5, 7);
+  ctx.closePath();
+  ctx.fill();
+
+  // Leather vest over a shirt --- a cream collar sliver + button dots read as
+  // "open vest over shirt" without needing two full overlapping torso shapes.
+  ctx.fillStyle = "#5a3a22";
   ctx.beginPath();
   ctx.ellipse(0, 1, 7.5, 8.5, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#4a1f1f";
+  ctx.fillStyle = "#d8c9a3";
+  ctx.beginPath();
+  ctx.moveTo(0, -6);
+  ctx.lineTo(-2.6, 1);
+  ctx.lineTo(2.6, 1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#3a2412";
   ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(-6.5, 3);
   ctx.lineTo(6.5, 3);
   ctx.stroke();
+  ctx.fillStyle = "#e9d9a8";
+  ctx.beginPath();
+  ctx.arc(0, 3.5, 0.9, 0, Math.PI * 2);
+  ctx.arc(0, 6.5, 0.9, 0, Math.PI * 2);
+  ctx.fill();
 
-  ctx.strokeStyle = "#7a2e2e";
+  const carryBob = Math.sin(phase) * 1.2;
+  ctx.strokeStyle = "#5a3a22";
   ctx.lineWidth = 3.4;
   ctx.lineCap = "round";
   ctx.beginPath();
-  if (celebrating) {
+  if (carryingTreasure) {
+    ctx.moveTo(-6.5, -1);
+    ctx.lineTo(-4, 4 + carryBob);
+    ctx.moveTo(6.5, -1);
+    ctx.lineTo(4, 4 + carryBob);
+  } else if (celebrating) {
     ctx.moveTo(-6, -1);
     ctx.lineTo(-11, -12 + pickupHop * 0.3);
     ctx.moveTo(6, -1);
     ctx.lineTo(11, -12 + pickupHop * 0.3);
   } else {
-    const armSwing = moving ? Math.sin(phase + Math.PI) * 5.5 : Math.sin(animTime * IDLE_FREQ) * 1;
+    const armSwing = (moving ? Math.sin(phase + Math.PI) * 5.5 : Math.sin(animTime * IDLE_FREQ) * 1) * (chaseBoost ? CHASE_ARM_BOOST : 1);
     ctx.moveTo(-6.5, -1);
     ctx.lineTo(-10, 5 + armSwing);
     ctx.moveTo(6.5, -1);
     ctx.lineTo(10, 5 - armSwing);
   }
   ctx.stroke();
+
+  if (carryingTreasure) {
+    ctx.save();
+    ctx.translate(0, 3 + carryBob);
+    ctx.fillStyle = "#caa227";
+    ctx.fillRect(-4.5, -3, 9, 6);
+    ctx.fillStyle = "#8a6b1a";
+    ctx.fillRect(-4.5, -0.5, 9, 1.4);
+    ctx.strokeStyle = "#5a4310";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-4.5, -3, 9, 6);
+    ctx.restore();
+  }
 
   if (chaseBoost) drawSpeedLines(ctx, phase);
 
@@ -204,35 +270,36 @@ export function drawPirate(ctx: CanvasRenderingContext2D, state: PlayerVisualSta
   ctx.translate(hatLag.x, hatLag.y - 1);
   if (!moving) ctx.rotate(Math.sin(animTime * IDLE_FREQ) * 0.05);
 
-  ctx.fillStyle = "#3a2a1a";
+  // Large bicorne silhouette --- reads as "pirate captain" before any other
+  // detail; deliberately wider than the head (44px vs the 24px head) so it
+  // stays an unambiguous hat, not a bandana, at gameplay scale.
+  ctx.fillStyle = "#241a12";
   ctx.beginPath();
-  ctx.ellipse(-9, -24, 3, 4, 0.3, 0, Math.PI * 2);
+  ctx.moveTo(-22, -20);
+  ctx.quadraticCurveTo(-25, -31, -9, -35);
+  ctx.quadraticCurveTo(0, -41, 9, -35);
+  ctx.quadraticCurveTo(25, -31, 22, -20);
+  ctx.quadraticCurveTo(11, -26, 0, -25);
+  ctx.quadraticCurveTo(-11, -26, -22, -20);
+  ctx.closePath();
   ctx.fill();
+  ctx.strokeStyle = "#0f0a06";
+  ctx.lineWidth = 1;
+  ctx.stroke();
 
-  ctx.fillStyle = "#b3241f";
+  ctx.strokeStyle = "#e9d9a8";
+  ctx.lineWidth = 2.2;
   ctx.beginPath();
-  ctx.moveTo(-14, -22);
-  ctx.quadraticCurveTo(0, -37, 14, -22);
-  ctx.quadraticCurveTo(0, -27, -14, -22);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(12, -21);
-  ctx.quadraticCurveTo(22, -15, 17, -6);
-  ctx.quadraticCurveTo(14, -16, 10, -19);
-  ctx.fill();
+  ctx.moveTo(-18, -21.5);
+  ctx.quadraticCurveTo(0, -25.5, 18, -21.5);
+  ctx.stroke();
 
   ctx.fillStyle = "#e9d9a8";
   ctx.beginPath();
-  ctx.arc(-3, -28, 1.6, 0, Math.PI * 2);
-  ctx.arc(3, -28, 1.6, 0, Math.PI * 2);
+  ctx.arc(0, -30, 2.1, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#e9d9a8";
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.moveTo(-3, -26.5);
-  ctx.lineTo(-2, -24.5);
-  ctx.lineTo(2, -24.5);
-  ctx.lineTo(3, -26.5);
+  ctx.strokeStyle = "#8a6b1a";
+  ctx.lineWidth = 1;
   ctx.stroke();
   ctx.restore();
 
