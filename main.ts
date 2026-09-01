@@ -14,7 +14,7 @@ import { drawAttackButton } from "./src/render/attackButton.ts";
 import type { ProgressStatus } from "./src/game-logic.ts";
 import { resolveObstacleCollision } from "./src/obstacles.ts";
 import { createTraps, trapHitCircles, updateTraps } from "./src/traps.ts";
-import { drawMap, drawXMarker } from "./src/render/map.ts";
+import { drawMap, drawXArrow, drawXMarker } from "./src/render/map.ts";
 import { drawObstacles } from "./src/render/obstacles.ts";
 import { drawTraps } from "./src/render/traps.ts";
 import { drawTrail } from "./src/render/trail.ts";
@@ -24,7 +24,7 @@ import { drawJoystick } from "./src/render/joystick.ts";
 import { drawShip, drawShipArrow } from "./src/render/ship.ts";
 import { drawFragments, drawPickups } from "./src/render/pickups.ts";
 import { drawEnemies } from "./src/render/enemies.ts";
-import { drawEndScreen, drawScoreHud } from "./src/render/hud.ts";
+import { drawEndScreen, drawFragmentHud, drawScoreHud, drawStoryBanner, STORY_BANNER_DURATION } from "./src/render/hud.ts";
 import { CALLOUT_DURATION, drawCallout } from "./src/render/callout.ts";
 import type { Vec2 } from "./src/types.ts";
 import { drawChaseVignette, drawSightVignette } from "./src/render/vignette.ts";
@@ -98,6 +98,17 @@ let sightRadiusForRender = SIGHT_RADIUS;
 let terminalEnteredAt = 0;
 const CHASE_NOTICE_RADIUS = 260;
 
+// Reaching the X is the single biggest score moment in the run --- sized
+// above the previous top pickup (cursed hoard, 150) so it reads as the actual
+// climax, not just another collectible.
+const TREASURE_SCORE_BONUS = 300;
+
+interface StoryBanner {
+  text: string;
+  timer: number;
+}
+let storyBanner: StoryBanner | null = null;
+
 // First-encounter name-tags --- a brief label the first time each kind of
 // danger is actually seen, never control/how-to-play text. Keyed by kind (or
 // a single flag for the one-off hazards) so each fires exactly once per run.
@@ -161,6 +172,10 @@ function update(now: number, dt: number): void {
   player.speedTimer = Math.max(0, player.speedTimer - dt);
   visual.pickupPulse = Math.max(0, visual.pickupPulse - dt);
   visual.alertBeat = Math.max(0, visual.alertBeat - dt);
+  if (storyBanner) {
+    storyBanner.timer -= dt;
+    if (storyBanner.timer <= 0) storyBanner = null;
+  }
   const speed = PLAYER_SPEED * (player.speedTimer > 0 ? SPEED_BOOST_MULTIPLIER : 1);
 
   if (moving) {
@@ -208,13 +223,21 @@ function update(now: number, dt: number): void {
   for (let i = 0; i < newFragments; i++) {
     const result = collectFragment(status, fragmentsCollected);
     fragmentsCollected = result.fragmentsCollected;
-    if (result.status !== status) xRevealedAt = now;
+    if (result.status !== status) {
+      xRevealedAt = now;
+      storyBanner = { text: "All fragments found --- the X is revealed!", timer: STORY_BANNER_DURATION };
+    }
     status = result.status;
     visual.pickupPulse = PICKUP_PULSE_DURATION;
   }
 
   if (status === "xRevealed" && distanceTo(layout.xPos) <= X_REACH_RADIUS) {
-    status = reachX(status, fragmentsCollected);
+    const next = reachX(status, fragmentsCollected);
+    if (next !== status) {
+      score += TREASURE_SCORE_BONUS;
+      storyBanner = { text: "Treasure secured --- get back to the ship!", timer: STORY_BANNER_DURATION };
+    }
+    status = next;
   }
   if (status === "escaping" && distanceTo(layout.shipPos) <= SHIP_REACH_RADIUS) {
     const next = reachShip(status);
@@ -369,6 +392,7 @@ function resetGame(): void {
   introducedEnemyKinds.clear();
   trapIntroduced = false;
   cursedIntroduced = false;
+  storyBanner = null;
 }
 
 function render(now: number): void {
@@ -403,11 +427,17 @@ function render(now: number): void {
   if (visual.chased && status !== "won" && status !== "lost") {
     drawChaseVignette(ctx, viewport.width, viewport.height, now);
   }
+  if (status === "xRevealed") {
+    const arrow = offscreenArrow({ x: player.x, y: player.y }, layout.xPos, camera, viewport);
+    if (arrow) drawXArrow(ctx, arrow);
+  }
   if (escaping) {
     const arrow = offscreenArrow({ x: player.x, y: player.y }, layout.shipPos, camera, viewport);
     if (arrow) drawShipArrow(ctx, arrow);
   }
   drawScoreHud(ctx, score);
+  drawFragmentHud(ctx, fragmentsCollected, fragments.length);
+  if (storyBanner) drawStoryBanner(ctx, viewport, storyBanner.text, storyBanner.timer);
   drawJoystick(ctx, input.joystick);
   if (status !== "won" && status !== "lost") {
     drawAttackButton(ctx, viewport.width, viewport.height, combat.cooldown);

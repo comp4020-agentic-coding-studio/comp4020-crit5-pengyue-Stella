@@ -1,3 +1,4 @@
+import type { ScreenArrow } from "../camera.ts";
 import { cellAt, type Cell, type GameMap, SKETCH_PHASE_END, revealProgress } from "../map.ts";
 import type { Vec2 } from "../types.ts";
 import type { Zone } from "../world.ts";
@@ -97,6 +98,27 @@ function overshootEase(t: number): number {
   const c = 1.7;
   const tm1 = t - 1;
   return 1 + (c + 1) * tm1 ** 3 + c * tm1 ** 2;
+}
+
+// Screen-space, drawn after ctx.restore() like drawShipArrow --- the X's own
+// world-anchored pop-in (drawXMarker above) only reads if it happens to be on
+// screen at the moment of reveal, so this gives the "xRevealed" phase the same
+// always-visible destination cue the escape phase already gets for the ship.
+export function drawXArrow(ctx: CanvasRenderingContext2D, arrow: ScreenArrow): void {
+  ctx.save();
+  ctx.translate(arrow.x, arrow.y);
+  ctx.rotate(arrow.angle);
+  ctx.fillStyle = "#e0645a";
+  ctx.strokeStyle = "#7a2418";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(14, 0);
+  ctx.lineTo(-8, -8);
+  ctx.lineTo(-8, 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
 }
 
 // Cave cells are shaded toward black on top of their terrain colour, so the
