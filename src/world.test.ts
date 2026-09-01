@@ -58,4 +58,11 @@ describe("buildWorldLayout", () => {
     expect(a.xPos).not.toEqual(b.xPos);
     expect(a.skeletonHomes).not.toEqual(b.skeletonHomes);
   });
+
+  it("keeps enemy density high across jungle/ruins/cave, as a floor rather than an exact count", () => {
+    const layout = buildWorldLayout(mulberry32(5));
+    expect(layout.skeletonHomes.length).toBeGreaterThanOrEqual(7);
+    expect(layout.crabAmbushPoints.length).toBeGreaterThanOrEqual(9);
+    expect(layout.ghostSpawnPoints.length).toBeGreaterThanOrEqual(6);
+  });
 });

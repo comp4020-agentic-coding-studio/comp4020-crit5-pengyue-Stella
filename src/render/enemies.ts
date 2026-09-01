@@ -1,5 +1,7 @@
-import { CRAB_TELEGRAPH_DURATION } from "../enemies.ts";
+import { CRAB_TELEGRAPH_DURATION, DEATH_FADE_DURATION, HIT_FLASH_DURATION } from "../enemies.ts";
 import type { CrabEnemy, Enemy, GhostEnemy, SkeletonEnemy } from "../enemies.ts";
+
+const HIT_FLASH_RADIUS = 15;
 
 const SKELETON_BONE = "#e8e2d0";
 const SKELETON_OUTLINE = "#8a8270";
@@ -21,14 +23,19 @@ export function drawEnemies(
 
 function drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy, now: number, playerInCave: boolean): void {
   const defeated = enemy.state === "defeated";
-  if (defeated) {
-    // Tip the whole sprite over around its own position, faded --- a sword
-    // hit needs to read as "down", not just "still standing there".
+  const dead = enemy.state === "dead";
+  if (defeated || dead) {
+    // Tip the whole sprite over around its own position --- a sword hit needs
+    // to read as "down", not just "still standing there". A permanent kill
+    // additionally shrinks and fades all the way out over DEATH_FADE_DURATION
+    // so it reads as gone for good, distinct from the temporary stun.
+    const fade = dead ? Math.max(0, 1 - enemy.stateTimer / DEATH_FADE_DURATION) : 1;
     ctx.save();
     ctx.translate(enemy.pos.x, enemy.pos.y);
     ctx.rotate((enemy.facing * Math.PI) / 2.1);
+    ctx.scale(fade, fade);
     ctx.translate(-enemy.pos.x, -enemy.pos.y);
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = dead ? fade * 0.85 : 0.55;
   }
 
   switch (enemy.kind) {
@@ -45,11 +52,28 @@ function drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy, now: number, pla
       break;
   }
 
-  if (defeated) ctx.restore();
+  if (defeated || dead) ctx.restore();
+
+  if (enemy.hitFlash > 0) drawHitFlash(ctx, enemy);
 
   if (enemy.state === "alert") {
     drawAlertTell(ctx, enemy, now);
   }
+}
+
+// A brief white flash right where the sword connected --- strong, immediate
+// feedback that a hit landed, decaying over HIT_FLASH_DURATION regardless of
+// what state the enemy transitions into afterward.
+function drawHitFlash(ctx: CanvasRenderingContext2D, enemy: Enemy): void {
+  const alpha = Math.min(1, enemy.hitFlash / HIT_FLASH_DURATION);
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = alpha * 0.85;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(enemy.pos.x, enemy.pos.y, HIT_FLASH_RADIUS, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawSkeleton(ctx: CanvasRenderingContext2D, enemy: SkeletonEnemy): void {

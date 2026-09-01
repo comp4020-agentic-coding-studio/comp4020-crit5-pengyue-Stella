@@ -199,50 +199,11 @@ export function buildWorldLayout(rng: () => number): WorldLayout {
   // each reads as its own waypoint rather than stacked on a treasure pile.
   const fragmentPositions = [placeAnchor("beach"), placeAnchor("jungle"), placeAnchor("cave")];
 
-  const isShipClear = (p: Vec2): boolean => distSq(p, shipPos) > SHIP_DANGER_CLEARANCE * SHIP_DANGER_CLEARANCE;
-
-  // Five skeleton homes, jungle-heavy with the ruins border also covered, so
-  // leash+detection zones overlap each other and the ambush points below
-  // rather than sitting in isolation. Every one is rejection-sampled to keep
-  // its full danger radius (leash + detection) clear of the ship spawn --- a
-  // skeleton that could detect the player before they'd even taken a step was
-  // a real bug found in playtesting, not a hypothetical, and it has to hold
-  // for every seed, not just the one fixed layout used to have.
-  const jungleEntranceHome =
-    sampleInZone("jungle", (p) => isShipClear(p) && p.y < beachStartY - 80) ?? sampleInZone("jungle", isShipClear);
-  const skeletonHomes = [
-    jungleEntranceHome ?? { x: w / 2, y: jungleStartY },
-    nearAnchor(jungleGroveTreasure, "jungle", 140, 320, isShipClear),
-    nearAnchor(jungleWestTreasure, "jungle", 140, 320, isShipClear),
-    nearAnchor(ruinsVault, "ruins", 140, 320, isShipClear),
-    nearAnchor(ruinsWatchtower, "ruins", 140, 320, isShipClear),
-  ];
-
-  // Six ambush points, several placed to overlap a skeleton's territory or a
-  // treasure cluster rather than stand alone --- that overlap is the "danger
-  // zone", not a single ambush in a quiet corner.
-  const crabAmbushPoints = [
-    nearAnchor(jungleGroveTreasure, "jungle", 60, 160),
-    nearAnchor(ruinsVault, "ruins", 60, 160),
-    nearAnchor(jungleWestTreasure, "jungle", 60, 160),
-    placeAnchor("jungle"),
-    nearAnchor(ruinsWatchtower, "ruins", 60, 160),
-    placeAnchor("ruins"),
-  ];
-
-  // Four ghosts in a cave pocket this small is already dense --- kept spread
-  // from each other and from the cursed treasure so they read as a patrol,
-  // not a single stacked spawn.
-  const ghostSpawnPoints: Vec2[] = [];
-  for (let i = 0; i < 4; i++) {
-    const others = [cursedTreasurePos, ...ghostSpawnPoints];
-    const spread = (p: Vec2): boolean => others.every((o) => distSq(p, o) >= 60 * 60);
-    ghostSpawnPoints.push(sampleInZone("cave", spread) ?? sampleInZone("cave") ?? caveGrotto);
-  }
-
   // Traps guard the same five places the fixed layout guarded --- a vault
   // (twice), a grove, the cursed grotto, and the X itself --- at a random
   // angle/distance around each so the exact spot still varies every run.
+  // Drawn from the rng before the enemy density blocks below so growing
+  // those blocks doesn't reshuffle where traps land for a given seed.
   const trapPositions = [
     nearAnchor(ruinsVault, "ruins", 40, 100),
     nearAnchor(ruinsVault, "ruins", 40, 100),
@@ -250,6 +211,65 @@ export function buildWorldLayout(rng: () => number): WorldLayout {
     nearAnchor(caveGrotto, "cave", 40, 100),
     nearAnchor(xPos, "ruins", 40, 100),
   ];
+
+  const isShipClear = (p: Vec2): boolean => distSq(p, shipPos) > SHIP_DANGER_CLEARANCE * SHIP_DANGER_CLEARANCE;
+
+  // Seven skeleton homes, jungle-heavy with the ruins border also covered, so
+  // leash+detection zones overlap each other and the ambush points below
+  // rather than sitting in isolation. Every one is rejection-sampled to keep
+  // its full danger radius (leash + detection) clear of the ship spawn --- a
+  // skeleton that could detect the player before they'd even taken a step was
+  // a real bug found in playtesting, not a hypothetical, and it has to hold
+  // for every seed, not just the one fixed layout used to have. The vault gets
+  // a second guard and the X itself now gets one too, so the two biggest
+  // prizes on the ruins side are both properly defended, not just guarded by
+  // whichever crab happens to be nearby.
+  const jungleEntranceHome =
+    sampleInZone("jungle", (p) => isShipClear(p) && p.y < beachStartY - 80) ?? sampleInZone("jungle", isShipClear);
+  const skeletonHomes = [
+    jungleEntranceHome ?? { x: w / 2, y: jungleStartY },
+    nearAnchor(jungleGroveTreasure, "jungle", 140, 320, isShipClear),
+    nearAnchor(jungleWestTreasure, "jungle", 140, 320, isShipClear),
+    nearAnchor(ruinsVault, "ruins", 140, 320, isShipClear),
+    nearAnchor(ruinsVault, "ruins", 140, 320, isShipClear),
+    nearAnchor(ruinsWatchtower, "ruins", 140, 320, isShipClear),
+    nearAnchor(xPos, "ruins", 140, 320, isShipClear),
+  ];
+
+  // Nine ambush points, several placed to overlap a skeleton's territory or a
+  // treasure cluster rather than stand alone --- that overlap is the "danger
+  // zone", not a single ambush in a quiet corner. The X itself is now guarded
+  // too, and two extra free-roaming ambushes widen the overlap further.
+  const crabAmbushPoints = [
+    nearAnchor(jungleGroveTreasure, "jungle", 60, 160),
+    nearAnchor(ruinsVault, "ruins", 60, 160),
+    nearAnchor(jungleWestTreasure, "jungle", 60, 160),
+    placeAnchor("jungle"),
+    nearAnchor(ruinsWatchtower, "ruins", 60, 160),
+    placeAnchor("ruins"),
+    nearAnchor(xPos, "ruins", 60, 160),
+    placeAnchor("jungle"),
+    placeAnchor("ruins"),
+  ];
+
+  // Six ghosts in a cave pocket this small is dense on purpose --- two are
+  // anchored directly on the cave's own guarded treasures (the cursed hoard
+  // and the grotto) so those specific spots read as guarded, the rest spread
+  // from each other and from the cursed treasure so the pocket still reads as
+  // a patrol, not one stacked spawn.
+  const GHOST_SPAWN_COUNT = 6;
+  const ghostSpawnPoints: Vec2[] = [];
+  for (let i = 0; i < GHOST_SPAWN_COUNT; i++) {
+    const others = [cursedTreasurePos, ...ghostSpawnPoints];
+    const spread = (p: Vec2): boolean => others.every((o) => distSq(p, o) >= 60 * 60);
+    if (i === 0) {
+      ghostSpawnPoints.push(nearAnchor(cursedTreasurePos, "cave", 40, 120));
+    } else if (i === 1) {
+      ghostSpawnPoints.push(nearAnchor(caveGrotto, "cave", 40, 120));
+    } else {
+      ghostSpawnPoints.push(sampleInZone("cave", spread) ?? sampleInZone("cave") ?? caveGrotto);
+    }
+  }
 
   const spawnCoveAngle = rng() * Math.PI * 2;
   const jungleGroveAngle = rng() * Math.PI * 2;

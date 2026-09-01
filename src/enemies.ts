@@ -4,11 +4,13 @@ import type { Vec2 } from "./types.ts";
 import type { WorldLayout } from "./world.ts";
 
 // One shared FSM across all three enemy kinds --- a crab's "buried" rest and
-// a ghost's ambient drift both map onto "patrol". "defeated" is a shared
-// fourth-plus state added for combat: a sword hit knocks an enemy down
-// regardless of kind, handled once in updateEnemies rather than duplicated
-// per kind's own switch.
-export type FsmState = "patrol" | "alert" | "chase" | "return" | "defeated";
+// a ghost's ambient drift both map onto "patrol". "defeated" and "dead" are
+// shared states added for combat, both handled once in updateEnemies rather
+// than duplicated per kind's own switch: "defeated" is a temporary knockdown
+// (still has hp left, gets back up and walks home via "return"), "dead" is
+// permanent (hp exhausted, plays a distinct fade-out and is then pruned from
+// the array for good).
+export type FsmState = "patrol" | "alert" | "chase" | "return" | "defeated" | "dead";
 
 interface EnemyBase {
   id: string;
@@ -19,6 +21,10 @@ interface EnemyBase {
   facing: 1 | -1;
   /** current knockback velocity (px/s); decays to {0,0} via friction each frame */
   knockback: Vec2;
+  /** hit points remaining --- reaches 0 on the killing blow, see applySwordHit */
+  hp: number;
+  /** seconds remaining on a brief white hit-flash, started by applySwordHit and decayed every frame regardless of state */
+  hitFlash: number;
 }
 
 // A discriminated union rather than one flat interface with optional
@@ -68,7 +74,10 @@ const SKELETON_RETURN_ARRIVE_DIST = 12;
 const SKELETON_WANDER_ARRIVE_DIST = 8;
 const SKELETON_WANDER_PAUSE = 1.2;
 
-const CRAB_AMBUSH_RADIUS = 70;
+// Kept below combat.ts's ATTACK_RANGE (56) on purpose --- otherwise the
+// player is always detected before they're close enough to land a hit, and
+// the "sneak-attack while still patrol" reward below is never reachable.
+const CRAB_AMBUSH_RADIUS = 40;
 export const CRAB_TELEGRAPH_DURATION = 0.4;
 const CRAB_BURST_SPEED = 320;
 const CRAB_BURST_DURATION = 1.4;
@@ -87,10 +96,27 @@ const ESCAPE_SPEED_MULT = 1.15;
 
 // Knocked down, harmless, and briefly out of the fight --- then walks itself
 // home via the existing "return" state rather than staying gone for good, so
-// a sword doesn't permanently clear danger off the map.
+// a sword doesn't permanently clear danger off the map. This only fires while
+// hp remains; once hp hits 0 the enemy goes to "dead" instead (see below).
 export const DEFEAT_STUN_DURATION = 1.4;
 const KNOCKBACK_FRICTION = 6;
 const KNOCKBACK_REST_THRESHOLD = 5;
+
+// Skeletons and ghosts take two clean hits. A crab caught still buried
+// (state "patrol", hasn't noticed the player yet) takes a bonus sneak-attack
+// hit and dies in one --- once it's surfaced and alert/chasing/returning, it
+// takes the normal two. That's the "1-2 hits" the brief asks for: how many it
+// takes depends on whether the player got the drop on it.
+export const SKELETON_MAX_HP = 2;
+export const CRAB_MAX_HP = 2;
+export const GHOST_MAX_HP = 2;
+const CRAB_SNEAK_DAMAGE = 2;
+const NORMAL_HIT_DAMAGE = 1;
+
+export const HIT_FLASH_DURATION = 0.15;
+// How long the permanent-death fade/shrink plays before pruneDeadEnemies
+// actually removes the enemy from the array.
+export const DEATH_FADE_DURATION = 0.6;
 
 let nextId = 0;
 function makeId(kind: string): string {
@@ -111,6 +137,8 @@ export function createEnemies(layout: WorldLayout): Enemy[] {
       stateTimer: 0,
       facing: 1,
       knockback: { x: 0, y: 0 },
+      hp: SKELETON_MAX_HP,
+      hitFlash: 0,
       leash: SKELETON_LEASH,
       detectionRadius: SKELETON_DETECTION_RADIUS,
       wanderTarget: { ...home },
@@ -127,6 +155,8 @@ export function createEnemies(layout: WorldLayout): Enemy[] {
       stateTimer: 0,
       facing: 1,
       knockback: { x: 0, y: 0 },
+      hp: CRAB_MAX_HP,
+      hitFlash: 0,
       ambushRadius: CRAB_AMBUSH_RADIUS,
       burstTimer: 0,
     });
@@ -142,6 +172,8 @@ export function createEnemies(layout: WorldLayout): Enemy[] {
       stateTimer: 0,
       facing: 1,
       knockback: { x: 0, y: 0 },
+      hp: GHOST_MAX_HP,
+      hitFlash: 0,
       driftTarget: { ...spot },
     });
   }
@@ -152,8 +184,13 @@ export function createEnemies(layout: WorldLayout): Enemy[] {
 export function updateEnemies(enemies: Enemy[], ctx: EnemyUpdateContext): void {
   for (const enemy of enemies) {
     applyKnockback(enemy, ctx.dt);
+    enemy.hitFlash = Math.max(0, enemy.hitFlash - ctx.dt);
 
-    if (enemy.state === "defeated") {
+    if (enemy.state === "dead") {
+      // Permanently down --- just accumulate the fade timer render reads;
+      // pruneDeadEnemies removes it once the fade finishes.
+      enemy.stateTimer += ctx.dt;
+    } else if (enemy.state === "defeated") {
       updateDefeated(enemy, ctx.dt);
     } else {
       switch (enemy.kind) {
@@ -179,18 +216,48 @@ export function updateEnemies(enemies: Enemy[], ctx: EnemyUpdateContext): void {
   }
 }
 
+export interface VulnerabilityContext {
+  playerInCave: boolean;
+  hasTorch: boolean;
+}
+
+// Ghosts can't be hurt at all until the player has both entered the cave and
+// picked up the torch --- main.ts checks this before ever calling
+// applySwordHit, so a swing at an untorched ghost doesn't even trigger the
+// swing's knockback/flash feedback. Skeletons and crabs have no such gate.
+export function isEnemyVulnerable(enemy: Enemy, ctx: VulnerabilityContext): boolean {
+  if (enemy.kind !== "ghost") return true;
+  return ctx.playerInCave && ctx.hasTorch;
+}
+
 // A sword hit is a state transition like any other, just one that combat.ts
 // (which has no access to Enemy) can't drive itself --- main.ts calls this
-// once per hit after its own arc-detection. Hitting an already-defeated enemy
-// is a no-op so one swing can't restack knockback on something still down.
-export function applySwordHit(enemy: Enemy, sourcePos: Vec2, knockbackSpeed: number): void {
-  if (enemy.state === "defeated") return;
+// once per hit after its own arc-detection and vulnerability check. Hitting
+// an already-downed (defeated or dead) enemy is a no-op so one swing can't
+// restack knockback or damage on something already out. Returns true if the
+// hit landed, so callers can trigger shared feedback (screen shake, score).
+export function applySwordHit(enemy: Enemy, sourcePos: Vec2, knockbackSpeed: number): boolean {
+  if (enemy.state === "defeated" || enemy.state === "dead") return false;
   const dx = enemy.pos.x - sourcePos.x;
   const dy = enemy.pos.y - sourcePos.y;
   const dist = Math.hypot(dx, dy) || 1;
   enemy.knockback = { x: (dx / dist) * knockbackSpeed, y: (dy / dist) * knockbackSpeed };
-  enemy.state = "defeated";
+
+  // A crab still buried (hasn't noticed the player yet) eats a sneak-attack
+  // hit worth double damage --- the reward for landing a hit before it bursts.
+  const damage = enemy.kind === "crab" && enemy.state === "patrol" ? CRAB_SNEAK_DAMAGE : NORMAL_HIT_DAMAGE;
+  enemy.hp = Math.max(0, enemy.hp - damage);
+  enemy.hitFlash = HIT_FLASH_DURATION;
   enemy.stateTimer = 0;
+  enemy.state = enemy.hp <= 0 ? "dead" : "defeated";
+  return true;
+}
+
+// Removes enemies whose death-fade has finished --- called once per frame
+// after the attack pass so a killed enemy still plays its fade before it
+// actually leaves the array (and the loss/chase/render systems it feeds).
+export function pruneDeadEnemies(enemies: Enemy[]): Enemy[] {
+  return enemies.filter((enemy) => enemy.state !== "dead" || enemy.stateTimer < DEATH_FADE_DURATION);
 }
 
 function applyKnockback(enemy: EnemyBase, dt: number): void {
@@ -220,6 +287,7 @@ function updateDefeated(enemy: EnemyBase, dt: number): void {
 // regardless of distance to the player --- the cursed-treasure trap.
 export function triggerAlertPulse(enemies: Enemy[], origin: Vec2, radius: number): void {
   for (const enemy of enemies) {
+    if (enemy.state === "defeated" || enemy.state === "dead") continue;
     if (distance(enemy.pos, origin) > radius) continue;
     enemy.state = "chase";
     enemy.stateTimer = 0;

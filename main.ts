@@ -6,7 +6,14 @@ import { zoneAt } from "./src/world.ts";
 import { generateWorld } from "./src/worldgen.ts";
 import { ALERT_PULSE_RADIUS, collectNearby, createPickups } from "./src/pickups.ts";
 import { collectFragments, createFragments } from "./src/fragments.ts";
-import { applySwordHit, createEnemies, triggerAlertPulse, updateEnemies } from "./src/enemies.ts";
+import {
+  applySwordHit,
+  createEnemies,
+  isEnemyVulnerable,
+  pruneDeadEnemies,
+  triggerAlertPulse,
+  updateEnemies,
+} from "./src/enemies.ts";
 import { checkLoss, collectFragment, computeSightRadius, reachShip, reachX } from "./src/game-logic.ts";
 import { ATTACK_KNOCKBACK_SPEED, createCombatState, isWithinAttackArc, tryAttack } from "./src/combat.ts";
 import { drawSwordSwing } from "./src/render/combat.ts";
@@ -103,6 +110,15 @@ const CHASE_NOTICE_RADIUS = 260;
 // above the previous top pickup (cursed hoard, 150) so it reads as the actual
 // climax, not just another collectible.
 const TREASURE_SCORE_BONUS = 300;
+// A modest reward for a permanent kill --- everything else in the run gives
+// score on contact, so a defeated enemy giving none would read as a dead end.
+const ENEMY_DEFEAT_SCORE = 25;
+
+// Brief screen-shake on a landed hit --- decays linearly, applied as a
+// world-space jitter in render() only (HUD/vignettes stay put).
+const SHAKE_DURATION = 0.15;
+const SHAKE_MAGNITUDE = 5;
+let shakeTimer = 0;
 
 interface StoryBanner {
   text: string;
@@ -173,6 +189,7 @@ function update(now: number, dt: number): void {
   player.speedTimer = Math.max(0, player.speedTimer - dt);
   visual.pickupPulse = Math.max(0, visual.pickupPulse - dt);
   visual.alertBeat = Math.max(0, visual.alertBeat - dt);
+  shakeTimer = Math.max(0, shakeTimer - dt);
   if (storyBanner) {
     storyBanner.timer -= dt;
     if (storyBanner.timer <= 0) storyBanner = null;
@@ -266,13 +283,15 @@ function update(now: number, dt: number): void {
   const swung = tryAttack(combat, attackRequested, dt);
   if (swung) {
     for (const enemy of enemies) {
-      if (enemy.state === "defeated") continue;
-      if (enemy.kind === "ghost" && !playerInCave) continue;
-      if (isWithinAttackArc({ x: player.x, y: player.y }, player.facing, enemy.pos)) {
-        applySwordHit(enemy, { x: player.x, y: player.y }, ATTACK_KNOCKBACK_SPEED);
-      }
+      if (enemy.state === "defeated" || enemy.state === "dead") continue;
+      if (!isEnemyVulnerable(enemy, { playerInCave, hasTorch: player.torchBonus > 0 })) continue;
+      if (!isWithinAttackArc({ x: player.x, y: player.y }, player.facing, enemy.pos)) continue;
+      applySwordHit(enemy, { x: player.x, y: player.y }, ATTACK_KNOCKBACK_SPEED);
+      shakeTimer = SHAKE_DURATION;
+      if (enemy.hp <= 0) score += ENEMY_DEFEAT_SCORE;
     }
   }
+  enemies = pruneDeadEnemies(enemies);
 
   const currentAlertIds = new Set<string>();
   let startled = false;
@@ -326,7 +345,7 @@ function update(now: number, dt: number): void {
     player: { pos: { x: player.x, y: player.y }, radius: PLAYER_COLLISION_RADIUS },
     enemies: [
       ...enemies
-        .filter((enemy) => enemy.state !== "defeated")
+        .filter((enemy) => enemy.state !== "defeated" && enemy.state !== "dead")
         .map((enemy) => ({ pos: enemy.pos, radius: ENEMY_COLLISION_RADIUS })),
       ...trapHitCircles(traps),
     ],
@@ -390,6 +409,7 @@ function resetGame(): void {
   playerInCave = false;
   sightRadiusForRender = SIGHT_RADIUS;
   terminalEnteredAt = 0;
+  shakeTimer = 0;
 
   activeCallouts = [];
   introducedEnemyKinds.clear();
@@ -403,8 +423,12 @@ function render(now: number): void {
   const camera = updateCamera({ x: player.x, y: player.y }, viewport, world);
   const escaping = status === "escaping";
 
+  const shakeAmount = shakeTimer > 0 ? (shakeTimer / SHAKE_DURATION) * SHAKE_MAGNITUDE : 0;
+  const shakeX = shakeAmount ? (Math.random() * 2 - 1) * shakeAmount : 0;
+  const shakeY = shakeAmount ? (Math.random() * 2 - 1) * shakeAmount : 0;
+
   ctx.save();
-  ctx.translate(-camera.x, -camera.y);
+  ctx.translate(-camera.x + shakeX, -camera.y + shakeY);
   drawMap(ctx, map, now, camera.x, camera.y, viewport.width, viewport.height);
   drawObstacles(ctx, obstacles, map, now);
   drawTraps(ctx, traps, map, now);
